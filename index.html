@@ -655,6 +655,70 @@
                             'Found React/Redux devtools hooks');
                     }
                     
+                    // DevTools window size check
+                    const widthThreshold = 160;
+                    const heightThreshold = 160;
+                    
+                    if (window.outerWidth - window.innerWidth > widthThreshold || 
+                        window.outerHeight - window.innerHeight > heightThreshold) {
+                        results.add('DevTools', 'Chrome DevTools possibly open', 
+                            `Size difference: ${window.outerWidth - window.innerWidth}px width, ${window.outerHeight - window.innerHeight}px height`);
+                    }
+                    
+                    // Console profile detection
+                    let profileDetected = false;
+                    const originalProfile = console.profile;
+                    const originalProfileEnd = console.profileEnd;
+                    
+                    try {
+                        console.profile = function(profileName) {
+                            profileDetected = true;
+                            originalProfile.apply(console, arguments);
+                        };
+                        
+                        console.profileEnd = function() {
+                            originalProfileEnd.apply(console, arguments);
+                        };
+                        
+                        console.profile("DevToolsCheck");
+                        console.profileEnd();
+                        
+                        if (profileDetected) {
+                            results.add('DevTools', 'Console profiler detected', 
+                                'Profile function was intercepted');
+                        }
+                    } catch (e) {
+                        if (e.message && e.message.indexOf('not a function') === -1) {
+                            results.add('DevTools', 'Console profiling error', e.message);
+                        }
+                    } finally {
+                        console.profile = originalProfile;
+                        console.profileEnd = originalProfileEnd;
+                    }
+                    
+                    // Firebug detection
+                    if (window.Firebug && window.Firebug.chrome && window.Firebug.context) {
+                        results.add('DevTools', 'Firebug detected', 
+                            'Firebug object exists in global scope');
+                    }
+                    
+                    // Debugger statement detection
+                    const startTime = Date.now();
+                    try {
+                        // Execute a debugger statement
+                        // In DevTools with break on debugger statements, this will pause
+                        debugger;
+                        const debuggerTime = Date.now() - startTime;
+                        
+                        // If debugger execution took suspiciously long, user might have paused
+                        if (debuggerTime > 100) {
+                            results.add('DevTools', 'Debugger statement pause detected', 
+                                `Execution paused for ${debuggerTime}ms`);
+                        }
+                    } catch (e) {
+                        // Ignore errors
+                    }
+                    
                     // Try to detect Node.js environment
                     if ((typeof process !== 'undefined' && process.versions && process.versions.node) || 
                         typeof global !== 'undefined' || 
