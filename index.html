@@ -35,6 +35,8 @@
             border-radius: 4px;
             background-color: #f9f9f9;
             min-height: 200px;
+            max-height: 500px;
+            overflow-y: auto;
         }
         
         .detection {
@@ -85,428 +87,1036 @@
     </div>
 
     <script>
-    (function() {
-        const detectionLog = [];
-        const resultsElement = document.getElementById('results');
-        const statusElement = document.getElementById('status');
+(function() {
+    'use strict';
 
-        function recordDetection(type, details) {
-            const logEntry = { type, details: details || {}, timestamp: Date.now() };
-            detectionLog.push(logEntry);
-            console.warn(`[AUTOMATION DETECTED] Type: ${type}`, details || '');
-            
-            // Add to UI
-            const detectionElement = document.createElement('div');
-            detectionElement.className = 'detection';
-            const detectionTime = new Date(logEntry.timestamp).toLocaleTimeString();
-            
-            let detailsText = '';
-            if (details) {
-                try {
-                    detailsText = JSON.stringify(details);
-                } catch (e) {
-                    detailsText = '(Complex object)';
+    const windowObj = window;
+    const documentObj = document;
+    const navigatorObj = navigator;
+    const screenObj = screen;
+    const locationObj = location;
+    const resultsElement = document.getElementById('results');
+    const statusElement = document.getElementById('status');
+
+    const utilityHelper = {
+        _decodeString: function(encodedString, offset) {
+            let decodedString = "";
+            for (let i = 0; i < encodedString.length; i++) {
+                decodedString += String.fromCharCode(encodedString[i] - offset);
+            }
+            return decodedString;
+        },
+        isFunction: function(value) {
+            return typeof value === 'function';
+        },
+        isString: function(value) {
+            return typeof value === 'string';
+        },
+        isUndefined: function(value) {
+            return typeof value === 'undefined';
+        },
+        isNumber: function(value) {
+            return typeof value === 'number';
+        },
+        isObject: function(value) {
+            return value !== null && typeof value === 'object';
+        },
+        isArrayLike: function(value) {
+            return value != null && typeof value.length === 'number' && value.length >= 0;
+        },
+        serializeObj: function(obj, separator = ',', includeKey = false) {
+            if (!obj) return '';
+            let parts = [];
+            for (let key in obj) {
+                if (obj.hasOwnProperty(key)) {
+                    if (includeKey) parts.push(key);
+                    parts.push(obj[key]);
                 }
             }
-            
-            detectionElement.innerHTML = `
-                <strong>${type}</strong>
-                <div>${detailsText}</div>
-                <div class="timestamp">${detectionTime}</div>
-            `;
-            resultsElement.appendChild(detectionElement);
+            return parts.join(separator);
+        },
+        hashString: function(str) {
+            if (!str) return 0;
+            let hash = 2166136261;
+            for (let i = 0; i < str.length; i++) {
+                hash ^= str.charCodeAt(i);
+                hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+            }
+            return hash >>> 0;
+        },
+        decodeRotString: function(str, rot) {
+            let result = "";
+            for (let i = 0; i < str.length; i++) {
+                let charCode = str.charCodeAt(i);
+                if (charCode >= 65 && charCode <= 90) {
+                    result += String.fromCharCode(((charCode - 65 - rot + 26) % 26) + 65);
+                } else if (charCode >= 97 && charCode <= 122) {
+                    result += String.fromCharCode(((charCode - 97 - rot + 26) % 26) + 97);
+                } else {
+                    result += str[i];
+                }
+            }
+            return result;
+        },
+        findInArray: function(arr, predicate) {
+            for (let i = 0; i < arr.length; i++) {
+                if (predicate(arr[i], i, arr)) {
+                    return arr[i];
+                }
+            }
+            return undefined;
+        },
+        forEachArray: function(arr, callback) {
+            if (!arr || !arr.length) return;
+            for (let i = 0; i < arr.length; i++) {
+                callback(arr[i], i, arr);
+            }
+        },
+        stringContains: function(str, substring) {
+            if (!str || !substring) return false;
+            return str.indexOf(substring) > -1;
+        },
+        getRandomNumber: function(min, max) {
+            if (utilityHelper.isUndefined(max)) {
+                max = min;
+                min = 0;
+            }
+            return Math.floor(Math.random() * (max - min + 1)) + min;
+        },
+        shouldRunCheck: function(probabilityOutOf1000) {
+            return Math.random() < (probabilityOutOf1000 / 1000);
+        },
+        getUniqueValues: function(arr) {
+            if (!arr || !arr.length) return [];
+            const unique = [];
+            const seen = {};
+            for (let i = 0; i < arr.length; i++) {
+                const val = arr[i];
+                if (!seen[val]) {
+                    seen[val] = true;
+                    unique.push(val);
+                }
+            }
+            return unique;
         }
+    };
 
-        function isMethodNonNative(method) {
-            if (!method || typeof method !== 'function') return false;
-            return !/\{\s*\[native code\]\s*\}/.test(Function.prototype.toString.call(method));
-        }
-
-        function getNonNativeMethodBody(method, maxLength = 200) {
-            if (!method || typeof method !== 'function' || isMethodNonNative(method) === false) return "";
+    const domHelper = {
+        getTimestamp: function() {
+            return +new Date();
+        },
+        runInWorker: function(data, workerFunction, callback) {
             try {
-                const methodString = Function.prototype.toString.call(method);
-                return methodString.replace(/^function\s*\(.*?\)\s*\{/, '').replace(/\s*\}$/, '').substring(0, maxLength);
-            } catch (e) {
-                return "";
-            }
-        }
-
-        function checkNavigatorWebdriver() {
-            // Only detect if navigator.webdriver is explicitly true
-            if (navigator.webdriver === true) {
-                recordDetection('navigator.webdriver', { value: true });
-            }
-            
-            // Modern browsers might have this property but it doesn't mean automation
-            // Only check for non-standard implementation
-            try {
-                const descriptor = Object.getOwnPropertyDescriptor(Navigator.prototype, 'webdriver');
-                if (descriptor && descriptor.get && isMethodNonNative(descriptor.get)) {
-                    recordDetection('navigator.webdriver_modified_getter', { 
-                        nonNativeCode: getNonNativeMethodBody(descriptor.get) 
-                    });
-                }
-            } catch (e) { /* ignore */ }
-        }
-
-        function checkGlobalVariables() {
-            const automationGlobals = [
-                '_phantom', '__nightmare', '_selenium', 'callPhantom', 'callSelenium',
-                '_Selenium_IDE_Recorder', 'domAutomation', 'domAutomationController',
-                '_WEBDRIVER_ELEM_CACHE', 'wptagentGetInteractivePeriods', 'fSCInitialize',
-                '__webdriverFunc', 'geb', 'awesomium', '$chrome_asyncScriptInfo',
-                'webdriver',
-                '$cdc_asdjflasutopfhvcZLmcfl_',
-                '_evaluate', 'spawn', 'emit',
-                'Cypress', 'Sahi', '_sahi', 'ubot', 'UBotCookies'
-            ];
-            
-            for (const prop of automationGlobals) {
-                if (window[prop] !== undefined) {
-                    recordDetection('global_variable', { property: prop, value: typeof window[prop] });
-                }
-            }
-            
-            for (const key of Object.keys(window)) {
-                if (/^cdc_[a-zA-Z0-9]{22}_(Array|Promise|Symbol)$/.test(key)) {
-                    recordDetection('global_variable_cdc', { property: key });
-                }
-            }
-        }
-
-        function checkDocumentPropertiesAndAttributes() {
-            const documentProps = [
-                '__webdriver_script_fn', '__webdriver_script_f', '__$webdriverAsyncExecutor',
-                '__webdriverevaluate', '__seleniumevaluate', '__webdriver_script_function',
-                '__webdriver_script_func', '__fxdriver_evaluate', '__driver_unwrapped',
-                '__webdriver_unwrapped', '__driver_evaluate', '__selenium_unwrapped',
-                '__fxdriver_unwrapped', '$chrome_asyncScriptInfo', '$xwalk_asyncScriptInfo'
-            ];
-            
-            for (const prop of documentProps) {
-                if (document[prop] !== undefined) {
-                    recordDetection('document_property', { property: prop });
-                }
-            }
-            
-            for (const key of Object.keys(document)) {
-                if (/\$[a-z]dc_/.test(key)) {
-                    recordDetection('document_property_pattern', { property: key });
-                }
-                
-                try {
-                    if (document[key] && document[key]['_cacdc'] && document[key]['selenium-ide']) {
-                        recordDetection('document_property_custom_attributes', { property: key, attributes: ['_cacdc', 'selenium-ide'] });
-                    }
-                } catch(e) { /* ignore */ }
-            }
-
-            const attributesToCheck = ['selenium', 'webdriver', 'driver', 'cd_frame_id_'];
-            for (const attr of attributesToCheck) {
-                if (document.documentElement && document.documentElement.hasAttribute(attr)) {
-                    recordDetection('documentElement_attribute', { attribute: attr, value: document.documentElement.getAttribute(attr) });
-                }
-            }
-
-            if (document.cookie.includes('ChromeDriverwjers908fljsdf37459fsdfgdfwru=')) {
-                recordDetection('chromedriver_cookie');
-            }
-        }
-
-        function setupStackTraceAnalysis() {
-            const automationPatterns = /at\scallFunction\s\(\<anonymous|userscript\:Scraper|evaluateJavascriptFunction|evaluation_script|\.apply\.navigator|(at fn \(eval at evalFunc)|eval\sat\sevaluate|utilityscript.evaluate|pptr.evaluate/i;
-
-            function getStack() {
-                try {
-                    null[0](); // Force an error
-                } catch (e) {
-                    return e.stack || "";
-                }
-                return "";
-            }
-
-            function checkStack(source) {
-                const stack = getStack();
-                if (automationPatterns.test(stack)) {
-                    recordDetection('stack_trace_automation', { source: source, stack: stack.substring(0, 200) });
-                    return true;
-                }
-                
-                if (stack.includes('Taiko') || stack.includes('waitForPredicatePageFunction')) {
-                    recordDetection('stack_trace_taiko', { source: source, stack: stack.substring(0, 200) });
-                    return true;
-                }
-                return false;
-            }
-
-            const methodsToInstrument = {
-                'Document.evaluate': Document.prototype.evaluate,
-                'Element.getAttributeNode': Element.prototype.getAttributeNode,
-                'Element.getClientRects': Element.prototype.getClientRects,
-                'Document.querySelector': Document.prototype.querySelector,
-                'Document.querySelectorAll': Document.prototype.querySelectorAll,
-                'XMLSerializer.serializeToString': XMLSerializer.prototype.serializeToString,
-                'IntersectionObserver.observe': window.IntersectionObserver ? IntersectionObserver.prototype.observe : null,
-                'window.scrollBy': window.scrollBy,
-                'window.scrollTo': window.scrollTo
-            };
-
-            for (const methodName in methodsToInstrument) {
-                const originalMethod = methodsToInstrument[methodName];
-                if (originalMethod && typeof originalMethod === 'function') {
-                    const parts = methodName.split('.');
-                    let obj = window;
-                    const actualMethodName = parts[parts.length-1];
-                    
-                    if (parts.length > 1) {
-                        if (window[parts[0]] && window[parts[0]].prototype) {
-                            obj = window[parts[0]].prototype;
-                            obj[actualMethodName] = function(...args) {
-                                checkStack(`call_to_${methodName}`);
-                                return originalMethod.apply(this, args);
-                            };
-                        } else if (window[parts[0]]) {
-                            obj = window[parts[0]];
-                            obj[actualMethodName] = function(...args) {
-                                checkStack(`call_to_${methodName}`);
-                                return originalMethod.apply(this, args);
-                            };
-                        }
-                    } else if (methodName.startsWith('window.')) {
-                        window[actualMethodName] = function(...args) {
-                            checkStack(`call_to_${methodName}`);
-                            return originalMethod.apply(this, args);
-                        };
-                    }
-                }
-            }
-
-            if (window.Promise) {
-                const OriginalPromise = window.Promise;
-                window.Promise = new Proxy(OriginalPromise, {
-                    construct: function(target, args) {
-                        checkStack('Promise_constructor');
-                        return Reflect.construct(target, args);
-                    }
-                });
-            }
-
-            window.addEventListener('click', function(event) {
-                if (event.isTrusted === false) {
-                    if (checkStack('untrusted_click_event')) {
-                        recordDetection('untrusted_click_with_automation_stack', { target: event.target ? event.target.tagName : 'unknown' });
-                    }
-                }
-            }, true);
-        }
-
-        function checkErrorObjectManipulation() {
-            // Skip this test as it frequently produces false positives in normal browsers
-            // The error.stack property interaction has changed in modern browsers
-            // which makes this test unreliable
-            
-            // Only run the more specific test for automation tools that actually
-            // modify DevTools behavior
-            if (window.Worker && window.Blob && window.URL && window.URL.createObjectURL) {
-                try {
-                    const workerScript = `
-                        onmessage = function() {
-                            const detectionResult = {
-                                hasDevToolsHook: false,
-                                modifiedStack: false,
-                                reasons: []
-                            };
-                            
-                            try {
-                                // Test for specific DevTools hooks, not just any stack property access
-                                const originalConsoleLog = console.log;
-                                let consoleLogCalled = false;
-                                
-                                console.log = function() {
-                                    consoleLogCalled = true;
-                                    return originalConsoleLog.apply(console, arguments);
-                                };
-                                
-                                // Force an error and read its stack in a way that would trigger DevTools
-                                const err = new Error('DetectionTest');
-                                const stackProp = Object.getOwnPropertyDescriptor(err, 'stack');
-                                
-                                // Only report if we detect actual modification by automation tools
-                                if (stackProp && stackProp.get && /automationTool|selenium|puppeteer|playwright/i.test(stackProp.get.toString())) {
-                                    detectionResult.hasDevToolsHook = true;
-                                    detectionResult.reasons.push('Stack getter contains automation strings');
-                                }
-                                
-                                // Restore console.log
-                                console.log = originalConsoleLog;
-                                
-                                // Only report if we're confident this is automation behavior
-                                postMessage(detectionResult);
-                            } catch (e) {
-                                postMessage({ error: e.toString() });
+                if (windowObj.Blob && windowObj.Worker) {
+                    const workerCode = `
+                        self.onmessage = function(e) {
+                            const workerFunc = ${workerFunction.toString()};
+                            const result = workerFunc(e.data.payload, function(res) { postMessage(res); });
+                            if (typeof result !== 'undefined' && result !== null) {
+                                postMessage(result);
                             }
                         };
                     `;
-                    const blob = new Blob([workerScript], { type: 'application/javascript' });
-                    const url = URL.createObjectURL(blob);
-                    const worker = new Worker(url);
+                    const blob = new windowObj.Blob([workerCode], { type: 'application/javascript' });
+                    const worker = new windowObj.Worker(windowObj.URL.createObjectURL(blob));
                     worker.onmessage = function(e) {
-                        if (e.data.hasDevToolsHook) {
-                            recordDetection('devtools_hooks_detected', e.data);
-                        }
+                        callback(e.data);
                         worker.terminate();
-                        URL.revokeObjectURL(url);
+                        windowObj.URL.revokeObjectURL(blob);
                     };
-                    worker.postMessage({});
-                } catch (e) {
-                    console.error("Worker check failed to setup:", e);
+                    worker.onerror = function(e) {
+                        console.error("Worker error:", e);
+                        callback(null);
+                        worker.terminate();
+                        windowObj.URL.revokeObjectURL(blob);
+                    };
+                    worker.postMessage({ payload: data });
+                } else {
+                    callback(null);
                 }
+            } catch (e) {
+                console.error("runInWorker setup error:", e);
+                callback(null);
             }
+        },
+        addEventListener: function(element, eventName, handler, useCapture = false) {
+            if (element && element.addEventListener) {
+                element.addEventListener(eventName, handler, useCapture);
+            }
+        },
+        setAttribute: function(element, attrName, attrValue) {
+            if (element && element.setAttribute) {
+                element.setAttribute(attrName, attrValue);
+            }
+        },
+        getStyleProperty: function(element, propName) {
+            if (windowObj.getComputedStyle && element) {
+                return windowObj.getComputedStyle(element).getPropertyValue(propName);
+            }
+            return null;
+        },
+        eventIsTrusted: function(event) {
+            if (utilityHelper.isUndefined(event)) return -2;
+            const isTrusted = event.isTrusted;
+            if (utilityHelper.isUndefined(isTrusted) || typeof isTrusted !== 'boolean') return -1;
+            return isTrusted ? 1 : 0;
+        },
+        getViewportSize: function() {
+            return {
+                w: windowObj.innerWidth,
+                h: windowObj.innerHeight
+            };
+        },
+        getVisibilityState: function() {
+             return documentObj.visibilityState || documentObj.mozVisibilityState || documentObj.webkitVisibilityState || documentObj.msVisibilityState || 'visible';
+        }
+    };
+
+    const generalUtils = {
+        getBrowserVendor: function() {
+            return navigatorObj.vendor || "";
+        },
+        getPerformanceNow: function(fallback) {
+            if (windowObj.performance && windowObj.performance.now) {
+                return windowObj.performance.now();
+            }
+            return fallback ? fallback() : 0;
+        },
+        isNativeMethod: function(method) {
+            try {
+                if (!utilityHelper.isFunction(method)) return false;
+                const methodStr = Function.prototype.toString.call(method);
+                return /\[native code\]/.test(methodStr);
+            } catch (e) {
+                return false;
+            }
+        },
+        getFunctionHash: function(fn, options = {}) {
+            const maxLength = options.maxLength || 1024;
+            const includeDetails = options.includeDetails || false;
+            try {
+                const fnString = Function.prototype.toString.call(fn).trim().substring(0, maxLength);
+                const hash = utilityHelper.hashString(fnString);
+                return includeDetails ? `${hash}|${fnString}` : hash.toString();
+            } catch (e) {
+                return 'error_hashing_function';
+            }
+        },
+        setTimeout: function(callback, delay) {
+            return setTimeout(callback, delay);
+        }
+    };
+
+    const detections = [];
+    let detectionCounters = 0;
+    const detectionHistory = {};
+    const scriptStartTime = domHelper.getTimestamp();
+
+    function recordDetection(detectionType, detectionData = {}) {
+        detectionHistory[detectionType] = (detectionHistory[detectionType] || 0) + 1;
+        if (detectionHistory[detectionType] > 3) {
+            console.warn(`Detection [${detectionType}] triggered too many times. Suppressing.`);
+            return;
         }
 
-        function checkMutationObserverAttributes() {
-            if (window.MutationObserver && document.body) {
-                const observer = new MutationObserver(function(mutations) {
-                    for (const mutation of mutations) {
-                        if (mutation.type === 'attributes' && mutation.attributeName === 'selenium-ide-indicator') {
-                            recordDetection('mutation_selenium_ide_indicator');
-                            observer.disconnect();
+        const report = {
+            type: detectionType,
+            count: ++detectionCounters,
+            history: JSON.parse(JSON.stringify(detectionHistory)),
+            timestamp_offset: domHelper.getTimestamp() - scriptStartTime,
+            details: detectionData
+        };
+        detections.push(report);
+        console.warn("BOT DETECTION:", report);
+        
+        const detectionElement = document.createElement('div');
+        detectionElement.className = 'detection';
+        const detectionTime = new Date().toLocaleTimeString();
+        
+        let detailsText = '';
+        if (detectionData) {
+            try {
+                detailsText = JSON.stringify(detectionData);
+            } catch (e) {
+                detailsText = '(Complex object)';
+            }
+        }
+        
+        detectionElement.innerHTML = `
+            <strong>${detectionType}</strong>
+            <div>${detailsText}</div>
+            <div class="timestamp">${detectionTime}</div>
+        `;
+        
+        if (resultsElement.firstChild.nodeName.toLowerCase() === 'p') {
+            resultsElement.innerHTML = '';
+        }
+        
+        resultsElement.appendChild(detectionElement);
+        
+        statusElement.innerHTML = `<strong style="color: #ff6b6b;">Automation Detected!</strong> Found ${detections.length} indicators.`;
+    }
+
+    const coreDetector = {
+        checks: [],
+        runChecks: function() {
+            console.log("Running Core Detector Checks...");
+            this.checks.forEach((check, index) => {
+                try {
+                    const result = check.fn();
+                    if (result) {
+                        recordDetection(check.name, { result: result === true ? "Detected" : result });
+                    }
+                } catch (e) {}
+            });
+        },
+
+        _addCheck: function(name, fn) {
+            this.checks.push({ name, fn });
+        },
+
+        init: function() {
+            const charCodeConst = "fromCharCode";
+            const navigatorProp = "navigator";
+            const underscoreChar = "_";
+            const evalPropName = underscoreChar + "evaluate";
+            const scriptPropName = underscoreChar + "script";
+            const unwrappedPropName = underscoreChar + "unwrapped";
+            const seleniumString = "selenium";
+            const driverString = "driver";
+            const webdriverString = "web" + driverString;
+            const phantomString = "phantom";
+            const domAutomationString = "domAutomation";
+            const callString = "call";
+
+            const getWindowProperty = (propertyPath, useTop = false) => {
+                let targetObject = windowObj;
+                if (useTop && windowObj.top !== windowObj) {
+                    try {
+                        if (windowObj.top.location.href) targetObject = windowObj.top;
+                    } catch (e) {}
+                }
+                const propertyParts = propertyPath.split(".");
+                for (let i = 0; i < propertyParts.length; i++) {
+                    if (!targetObject || utilityHelper.isUndefined(targetObject[propertyParts[i]])) return undefined;
+                    targetObject = targetObject[propertyParts[i]];
+                }
+                return targetObject;
+            };
+
+            const isMethodNonNative = (method) => {
+                if (!utilityHelper.isFunction(method)) return false;
+                return !generalUtils.isNativeMethod(method);
+            };
+
+            this._addCheck("zeroScreenSize", () => screenObj.width <= 1 || screenObj.height <= 1);
+            this._addCheck("zeroAvailableScreenSize", () => screenObj.availHeight <= 1 || screenObj.availWidth <= 1);
+
+            this._addCheck("cefQueryProperties", () => {
+                const hasCefQuery = utilityHelper.isFunction(getWindowProperty("cefQuery"));
+                const hasCefQueryCancel = utilityHelper.isFunction(getWindowProperty("cefQueryCancel"));
+                return (hasCefQuery || hasCefQueryCancel) ? { cefQuery: hasCefQuery, cefQueryCancel: hasCefQueryCancel } : false;
+            });
+
+            this._addCheck("modifiedNavigatorProperties", () => {
+                try {
+                    const userAgentDescriptor = Object.getOwnPropertyDescriptor(navigatorObj, "userAgent");
+                    const platformDescriptor = Object.getOwnPropertyDescriptor(navigatorObj, "platform");
+                    if (userAgentDescriptor && userAgentDescriptor.get && isMethodNonNative(userAgentDescriptor.get)) return "userAgent getter modified";
+                    if (platformDescriptor && platformDescriptor.get && isMethodNonNative(platformDescriptor.get)) return "platform getter modified";
+                } catch (e) {}
+                return false;
+            });
+
+            this._addCheck("automationGlobals", () => {
+                const automationGlobals = [
+                    "_" + phantomString, "__nightmare", "_" + seleniumString,
+                    callString + "Phantom", callString + "Selenium",
+                    "_Selenium_IDE_Recorder", domAutomationString, domAutomationString + "Controller",
+                    "_" + webdriverString.toUpperCase() + "_ELEM_CACHE",
+                    "wptagentGetInteractivePeriods", "fSCInitialize", "__webdriverFunc",
+                    "geb", "awesomium", "$chrome_asyncScriptInfo", webdriverString,
+                    "_WEBDRIVER_ELEM_CACHE", "$cdc_asdjflasutopfhvcZLmcfl_", evalPropName
+                ];
+                for (let glob of automationGlobals) {
+                    if (getWindowProperty(glob, true) !== undefined) return glob;
+                }
+                return false;
+            });
+
+            this._addCheck("automationDocProps", () => {
+                const automationProps = [
+                    "__webdriver" + evalPropName, "__selenium" + evalPropName,
+                    "__webdriver" + scriptPropName + "_function", "__webdriver" + scriptPropName + "_func",
+                    "__webdriver" + scriptPropName + "_fn", "__fx" + driverString + evalPropName,
+                    "__driver" + unwrappedPropName, "__webdriver" + unwrappedPropName,
+                    "__driver" + evalPropName, "__selenium" + unwrappedPropName,
+                    "__fx" + driverString + unwrappedPropName, "__$webdriverAsyncExecutor",
+                    "$chrome_asyncScriptInfo", webdriverString, "__webdriverFunc",
+                    "_WEBDRIVER_ELEM_CACHE", "$xwalk_asyncScriptInfo"
+                ];
+                for (let prop of automationProps) {
+                    if (documentObj[prop] !== undefined || getWindowProperty("document." + prop) !== undefined) return prop;
+                }
+                return false;
+            });
+            
+            this._addCheck("webdriverProperty", () => !utilityHelper.isUndefined(navigatorObj[webdriverString]));
+            
+            this._addCheck("webdriverAttributesOnDocument", () => {
+                const docEl = documentObj.documentElement;
+                if (docEl.getAttribute(seleniumString) || docEl.getAttribute(webdriverString) ||
+                    docEl.getAttribute(driverString) || docEl.getAttribute("cd_frame_id_")) {
+                    return "Attribute on documentElement";
+                }
+                const iframes = Array.from(documentObj.getElementsByTagName("iframe"));
+                const frames = Array.from(documentObj.getElementsByTagName("frame"));
+                for (let frame of [...iframes, ...frames]) {
+                    if (frame.getAttribute(seleniumString) || frame.getAttribute(webdriverString) ||
+                        frame.getAttribute(driverString) || frame.getAttribute("cd_frame_id_")) {
+                        return "Attribute on frame/iframe element";
+                    }
+                }
+                return false;
+            });
+
+            this._addCheck("webGLRendererAnomalies", () => {
+                try {
+                    const canvas = documentObj.createElement("canvas");
+                    const gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+                    if (!gl) return "No WebGL";
+                    const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
+                    if (!debugInfo) return "No WEBGL_debug_renderer_info";
+                    const vendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL);
+                    const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+                    if (renderer.toLowerCase().includes("swiftshader") || renderer.toLowerCase().includes("llvmpipe")) return `Software Renderer: ${renderer}`;
+                    if (vendor.toLowerCase().includes("google") && renderer.toLowerCase().includes("angle")) return false;
+                } catch (e) { return "WebGL check error"; }
+                return false;
+            });
+
+            this._addCheck("phantomJSStack", () => {
+                try { null[0](); } catch (e) { return e.stack && e.stack.includes("phantomjs"); }
+                return false;
+            });
+
+            this._addCheck("userAgentModification", () => {
+                 try {
+                    const uaDesc = Object.getOwnPropertyDescriptor(Navigator.prototype, 'userAgent');
+                    if (uaDesc && uaDesc.get && isMethodNonNative(uaDesc.get)) {
+                        return "navigator.userAgent getter modified";
+                    }
+                } catch (e) {}
+                return false;
+            });
+
+            this._addCheck("chromeBenchmarkingAPI", () => windowObj.chrome && (windowObj.chrome.benchmarking || windowObj.chrome.send));
+            
+            this._addCheck("documentCookieModification", () => {
+                try {
+                    const cookieDesc = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie') || Object.getOwnPropertyDescriptor(HTMLDocument.prototype, 'cookie');
+                    if (cookieDesc && cookieDesc.get && isMethodNonNative(cookieDesc.get)) return "document.cookie getter modified";
+                    if (cookieDesc && cookieDesc.set && isMethodNonNative(cookieDesc.set)) return "document.cookie setter modified";
+                } catch (e) {}
+                return false;
+            });
+
+            this._addCheck("smallColorDepth", () => screenObj.colorDepth <= 8 || screenObj.pixelDepth <= 8 || windowObj.devicePixelRatio <= 0);
+            
+            this._addCheck("spoofedChrome", () => /Chrome/.test(navigatorObj.userAgent) && /Google Inc\./.test(navigatorObj.vendor) && (!windowObj.chrome));
+            
+            this._addCheck("watirProperties", () => {
+                const watirProps = ["__lastWatirAlert", "__lastWatirPrompt", "__lastWatirConfirm"];
+                for (let prop of watirProps) if (!utilityHelper.isUndefined(windowObj[prop])) return prop;
+                return false;
+            });
+            
+            this._addCheck("permissionsAPIModified", () => {
+                try {
+                    if (navigatorObj.permissions && utilityHelper.isFunction(navigatorObj.permissions.query) && isMethodNonNative(navigatorObj.permissions.query)) {
+                        return "navigator.permissions.query modified";
+                    }
+                } catch (e) {}
+                return false;
+            });
+
+            this._addCheck("callPhantomProperty", () => !!getWindowProperty("callPhantom"));
+            
+            this._addCheck("spoofedAppleOS", () => utilityHelper.isUndefined(windowObj.ApplePaySession) && /iPad|iPhone|iPod/.test(navigatorObj.platform));
+            
+            this._addCheck("chromeExtensionProperty", () => windowObj.chrome && !!windowObj.chrome.extension);
+
+            this._addCheck("nodejsProperties", () => {
+                const nodeProps = ["require", "process", "Buffer", "emit", "spawn"];
+                for (let prop of nodeProps) {
+                    if (!utilityHelper.isUndefined(windowObj[prop])) {
+                         if (prop === 'require' && utilityHelper.isFunction(windowObj.require) && windowObj.require.toString().includes("nodeRequire")) {
+                            return "Node.js 'require' detected";
+                        } else if (prop !== 'require') {
+                            return `Node.js global '${prop}' detected`;
+                        }
+                    }
+                }
+                return false;
+            });
+            
+            this._addCheck("webdriverPropertyModified", () => {
+                try {
+                    if (navigatorObj.hasOwnProperty(webdriverString) && navigatorObj[webdriverString] === false) {
+                        const descriptor = Object.getOwnPropertyDescriptor(Navigator.prototype, webdriverString) || Object.getOwnPropertyDescriptor(navigatorObj, webdriverString);
+                        if (descriptor && (descriptor.get || descriptor.configurable)) {
+                            return `navigator.webdriver is false but seems tampered (getter/configurable)`;
+                        }
+                    }
+                } catch (e) {}
+                return false;
+            });
+
+            this._addCheck("boundBrowserAPIs", () => {
+                const isBound = (fn) => fn && fn.name && fn.name.startsWith("bound ");
+                if (isBound(navigatorObj.getUserMedia) || isBound(navigatorObj.webkitGetUserMedia) || isBound(navigatorObj.mozGetUserMedia)) return "getUserMedia bound";
+                if (navigatorObj.getBattery && isBound(navigatorObj.getBattery)) return "getBattery bound";
+                return false;
+            });
+
+            this._addCheck("inconsistentChromePlugins", () => {
+                if (navigatorObj.plugins && navigatorObj.plugins.length > 0) {
+                    const plugins = Array.from(navigatorObj.plugins);
+                    const hasChromePDF = plugins.some(p => p.name === "Chrome PDF Viewer");
+                    const hasNativeClient = plugins.some(p => p.name === "Native Client");
+                    if (windowObj.chrome && (!hasChromePDF || !hasNativeClient) && plugins.length < 5) {
+                        return "Few plugins, missing standard Chrome PDF/NaCl";
+                    }
+                }
+                return false;
+            });
+
+            this._addCheck("CypressGlobal", () => typeof windowObj.Cypress === 'object' && utilityHelper.isFunction(windowObj.Cypress.isCy));
+
+            this._addCheck("cookieDisabled", () => {
+                try {
+                    documentObj.cookie = "cq_tst=1";
+                    const enabled = documentObj.cookie.includes("cq_tst=1");
+                    documentObj.cookie = "cq_tst=; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+                    return !enabled;
+                } catch (e) { return true; }
+            });
+
+            this._addCheck("localStorageDisabled", () => {
+                try {
+                    windowObj.localStorage.setItem("_cq_tst", "1");
+                    windowObj.localStorage.removeItem("_cq_tst");
+                    return false;
+                } catch (e) { return true; }
+            });
+            
+            this._addCheck("invalidMimeTypeList", () => {
+                 try {
+                    const mimeTypesStr = navigatorObj.mimeTypes && navigatorObj.mimeTypes.toString();
+                    return mimeTypesStr !== "[object MimeTypeArray]" && !/MSMimeTypesCollection/i.test(mimeTypesStr);
+                } catch (e) { return true; }
+            });
+
+            this._addCheck("electronEnvironment", () => {
+                if (typeof process === 'object' && process.versions && process.versions.electron) {
+                    return "process.versions.electron detected";
+                }
+                if (typeof navigatorObj.userAgent === 'string' && navigatorObj.userAgent.includes('Electron')) {
+                    return "User agent contains Electron";
+                }
+                if (typeof windowObj.require === 'function' && typeof windowObj.process === 'object') {
+                    return "window.require and window.process exist (common in Electron renderer)";
+                }
+                return false;
+            });
+
+            this._addCheck("timezoneOffsetModified", () => {
+                try {
+                    const date = new Date();
+                    if (isMethodNonNative(date.getTimezoneOffset)) {
+                        return "Date.prototype.getTimezoneOffset modified";
+                    }
+                } catch (e) {}
+                return false;
+            });
+
+            this._addCheck("prototypeInChromeRuntimeSendMessage", () => {
+                return !!(windowObj.chrome && windowObj.chrome.runtime &&
+                          windowObj.chrome.runtime.sendMessage &&
+                          windowObj.chrome.runtime.sendMessage.prototype);
+            });
+            
+            this._addCheck("nonNumericInnerWidth", () => !utilityHelper.isNumber(windowObj.innerWidth));
+
+            this._addCheck("dateTimeFormatModified", () => {
+                try {
+                    if (windowObj.Intl && windowObj.Intl.DateTimeFormat && isMethodNonNative(windowObj.Intl.DateTimeFormat)) {
+                        return "Intl.DateTimeFormat modified";
+                    }
+                } catch (e) {}
+                return false;
+            });
+            
+            this._addCheck("navigatorPrototypeModified", () => {
+                try {
+                    return Object.getPrototypeOf(navigatorObj) !== Navigator.prototype;
+                } catch (e) { return true; }
+            });
+
+             this._addCheck("braveShieldsUpAudioContext", () => {
+                if (generalUtils.isNativeMethod(navigatorObj.brave && navigatorObj.brave.isBrave) && navigatorObj.brave.isBrave.toString().length < 100) {
+                    try {
+                        if (!windowObj.OfflineAudioContext) return false;
+                        const audioContext = new OfflineAudioContext(1, 1, 44100);
+                        const analyser = audioContext.createAnalyser();
+                        const freqData = new Float32Array(analyser.frequencyBinCount);
+                        analyser.getFloatFrequencyData(freqData);
+                        return utilityHelper.getUniqueValues(freqData).length <= 1;
+                    } catch (e) {}
+                }
+                return false;
+            });
+        }
+    };
+
+    const advancedDetector = {
+        initTime: domHelper.getTimestamp(),
+        isChromeOrGoogleEnv: !!windowObj.chrome || generalUtils.getBrowserVendor() === "Google Inc.",
+
+        runChecks: function() {
+            console.log("Running Advanced Detector Checks...");
+            this._detectDevToolsViaWorker();
+            this._detectDocumentManipulation();
+            this._detectExtensionSideEffects();
+            this._detectHiddenElementInteraction();
+            this._detectWebDriverEvents();
+            this._instrumentNativeMethodsForStackTrace();
+            this._checkEmailFieldInteractions();
+            this._checkViewportResize();
+            this._checkBizSeaSkyShadowDOM();
+            this._detectDevTools();
+        },
+
+        _detectDevTools: function() {
+            let devToolsOpen = false;
+            
+            const checkDevTools = () => {
+                if (!devToolsOpen) {
+                    const widthThreshold = windowObj.outerWidth - windowObj.innerWidth > 160;
+                    const heightThreshold = windowObj.outerHeight - windowObj.innerHeight > 160;
+                    
+                    if (widthThreshold || heightThreshold) {
+                        devToolsOpen = true;
+                        recordDetection("devtools_open", { 
+                            widthDiff: windowObj.outerWidth - windowObj.innerWidth,
+                            heightDiff: windowObj.outerHeight - windowObj.innerHeight
+                        });
+                    }
+                }
+            };
+            
+            checkDevTools();
+            windowObj.addEventListener('resize', checkDevTools);
+            
+            const originalConsole = { 
+                log: console.log, 
+                info: console.info,
+                warn: console.warn,
+                error: console.error,
+                debug: console.debug
+            };
+            
+            const methods = ['log', 'info', 'warn', 'error', 'debug'];
+            
+            methods.forEach(method => {
+                console[method] = function() {
+                    if (!devToolsOpen) {
+                        try {
+                            throw new Error('ConsoleDetect');
+                        } catch (e) {
+                            const stack = e.stack || '';
+                            if (stack.includes('at Object.console')) {
+                                devToolsOpen = true;
+                                recordDetection("devtools_console_access", { method });
+                            }
+                        }
+                    }
+                    return originalConsole[method].apply(console, arguments);
+                };
+            });
+        },
+
+        _detectDevToolsViaWorker: function() {
+            if (!this.isChromeOrGoogleEnv || !windowObj.Blob || !windowObj.Worker) return;
+
+            const detectStrings = [
+                "evaluator",
+                "message",
+                "onmsg",
+                "stack",
+                "console",
+                "debug",
+                "",
+                !1,
+                "MessageChannel"
+            ];
+
+            domHelper.runInWorker(
+                detectStrings,
+                function(testStringArr, callback) {
+                    let isDetected = false;
+                    try {
+                        const testObj = new self[testStringArr[8]]();
+                        const testConfig = {};
+                        testConfig[testStringArr[0]] = testStringArr[7];
+                        testConfig[testStringArr[1]] = testStringArr[7];
+
+                        testConfig[testStringArr[2]] = function() {
+                            isDetected = true;
+                            return testStringArr[6];
+                        };
+                        Object.defineProperty(testObj, testStringArr[3], testConfig);
+
+                        self[testStringArr[4]][testStringArr[5]](testObj);
+                    } catch (error) {}
+                    callback(isDetected);
+                },
+                function(result) {
+                    if (result) {
+                        recordDetection("cdw_devtools_via_worker");
+                    }
+                }
+            );
+        },
+
+        _detectDocumentManipulation: function() {
+            const embeddedCheckString = "window.__selenium_id__";
+            const observeAttrName = "getAttribute";
+            const observeAttrValue = "webdriver";
+
+            for (const propName in documentObj) {
+                try {
+                    if (propName === embeddedCheckString) continue;
+                    const propValue = documentObj[propName];
+                    if (propValue) {
+                        if (propName.match(/\$[a-z]dc_/) || (propValue[observeAttrName] && propValue[observeAttrName] === observeAttrValue)) {
+                            recordDetection("doc_cdc_property", { val: propName, ks: Object.keys(propValue).join(',') });
+                            return;
+                        }
+                        if (propName.match(/__webdriver_script_f/) && typeof propValue === 'function') {
+                            recordDetection("doc_webdriver_script_func", { val: propValue.toString().substring(0, 100) });
+                            return;
+                        }
+                        if (propName.match(/__\$webdriverAsyncExecutor/) && utilityHelper.isFunction(propValue)) {
+                            recordDetection("doc_webdriver_async_executor", { val: propValue.toString().substring(0, 100) });
+                            return;
+                        }
+                        if (propName.match(/\$\w+_asyncScriptInfo/)) {
+                            recordDetection("doc_async_script_info", { val: propValue.toString().substring(0, 100) });
                             return;
                         }
                     }
+                } catch (e) {}
+            }
+        },
+
+        _detectExtensionSideEffects: function() {
+            if (!windowObj.MutationObserver || !documentObj.body) return;
+            try {
+                const shadowDomAttr = "data-cheq-extension-presence";
+                let detectionFired = false;
+                const observer = new MutationObserver(function(mutations, obs) {
+                    for (let i = 0; i < mutations.length; i++) {
+                        const mutation = mutations[i];
+                        if (mutation.type === "attributes" && mutation.attributeName === shadowDomAttr && !detectionFired) {
+                            detectionFired = true;
+                            recordDetection("ext_side_effect_attr_change");
+                            if (obs && obs.disconnect) obs.disconnect();
+                            break;
+                        }
+                    }
                 });
-                observer.observe(document.body, { attributes: true });
-            }
-        }
+                observer.observe(documentObj.body, { attributes: true, childList: false, subtree: false });
+            } catch (e) {}
+        },
 
-        function listenWebDriverEvents() {
-            const webdriverEvents = [
-                'driver-evaluate', 'webdriver-evaluate', 'webdriver-evaluate-response',
-                'webdriverCommand', 'selenium-evaluate'
-            ];
-            
-            for (const eventName of webdriverEvents) {
-                document.addEventListener(eventName, function(event) {
-                    recordDetection('webdriver_event', { type: event.type });
-                }, true);
-            }
-        }
+        _detectHiddenElementInteraction: function() {
+            if (!documentObj.body) return;
+            try {
+                const bodyElement = documentObj.body;
+                const linkElement = documentObj.createElement("a");
+                const divElement = documentObj.createElement("div");
+                
+                linkElement.innerHTML = "___";
+                domHelper.setAttribute(linkElement, "href", "#");
+                domHelper.setAttribute(linkElement, "tabindex", "-1");
+                domHelper.setAttribute(linkElement, "aria-hidden", "true");
 
-        function checkCEF() {
-            if (typeof window.cefQuery === 'function' || typeof window.cefQueryCancel === 'function') {
-                recordDetection('cef_properties', {
-                    cefQuery: typeof window.cefQuery,
-                    cefQueryCancel: typeof window.cefQueryCancel
+                domHelper.addEventListener(linkElement, "click", function(event) {
+                    event.preventDefault(); event.stopPropagation();
+                    const cssProperties = [];
+                    try {
+                        if (event.currentTarget) {
+                            cssProperties.push(domHelper.getStyleProperty(event.currentTarget, "opacity"));
+                            cssProperties.push(domHelper.getStyleProperty(event.currentTarget, "zIndex"));
+                        }
+                    } catch (e) {}
+                    recordDetection("hida_honeypot_click", {
+                        isTrusted: domHelper.eventIsTrusted(event),
+                        styles: cssProperties.join(',')
+                    });
                 });
-            }
-        }
 
-        function checkModifiedNativeFunctions() {
-            const functionsToCheck = {
-                'navigator.permissions.query': navigator.permissions ? navigator.permissions.query : null,
-                'document.cookie_getter': Object.getOwnPropertyDescriptor(Document.prototype, 'cookie') ? 
-                    Object.getOwnPropertyDescriptor(Document.prototype, 'cookie').get : null,
-                'document.cookie_setter': Object.getOwnPropertyDescriptor(Document.prototype, 'cookie') ? 
-                    Object.getOwnPropertyDescriptor(Document.prototype, 'cookie').set : null,
-                'HTMLIFrameElement.contentWindow': Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'contentWindow') ? 
-                    Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'contentWindow').get : null,
-                'Canvas.getContext': HTMLCanvasElement.prototype.getContext,
-                'Canvas.toDataURL': HTMLCanvasElement.prototype.toDataURL,
-                'WebGL.getParameter': window.WebGLRenderingContext ? WebGLRenderingContext.prototype.getParameter : null,
-                'Date.getTimezoneOffset': Date.prototype.getTimezoneOffset,
-                'Intl.DateTimeFormat': window.Intl ? Intl.DateTimeFormat : null,
-                'document.createElement': document.createElement
+                [divElement, linkElement].forEach((el, i) => {
+                    el.style.opacity = "0.01";
+                    el.style.position = "absolute";
+                    el.style.zIndex = (-1 * (1000 - i)).toString();
+                    el.style.width = "1px";
+                    el.style.height = "1px";
+                    el.style.top = "-10000px";
+                    el.style.left = "-10000px";
+                    bodyElement.insertBefore(el, bodyElement.firstChild);
+                });
+            } catch (e) {}
+        },
+
+        _detectWebDriverEvents: function() {
+            const webdriverEventTypes = ["driver-evaluate", "webdriver-evaluate", "webdriverCommand", "selenium-evaluate"];
+            webdriverEventTypes.forEach(eventType => {
+                domHelper.addEventListener(documentObj, eventType, function(event) {
+                    if (webdriverEventTypes.indexOf(event.type) > -1) {
+                        recordDetection("wde_webdriver_event", { val: event.type });
+                    }
+                });
+            });
+        },
+
+        _instrumentNativeMethodsForStackTrace: function() {
+            const automationPatterns = /at\scallFunction\s\(\<anonymous|usercript\:Scraper|evaluateJavascriptFunction|evaluation_script|\.apply\.navigator|(at fn \(eval at evalFunc)|eval\sat\sevaluate|utilityscript.evaluate|pptr.evaluate/i;
+            let stiDetectionCounter = 0;
+            let stiHasDetectionFired = false;
+            const checkInterval = 300;
+
+            const getCallStackString = (func, limit = 2, maxLength = 1024) => {
+                const callstack = [];
+                try {
+                    for (let i = 0, caller = func.caller; caller && i < limit; i++) {
+                        callstack.push(utilityHelper.hashString(caller.toString()));
+                        callstack.push(caller.toString().substring(0, maxLength));
+                        caller = caller.caller;
+                        i++;
+                    }
+                } catch (e) {}
+                return utilityHelper.serializeObj(callstack);
             };
 
-            for (const name in functionsToCheck) {
-                const func = functionsToCheck[name];
-                if (func && isMethodNonNative(func)) {
-                    recordDetection('modified_native_function', { name: name, body: getNonNativeMethodBody(func) });
+            const createInstrumentedHandler = (originalMethod, detectionType, customHandlers = []) => {
+                return function(...args) {
+                    stiDetectionCounter++;
+                    if (stiHasDetectionFired || stiDetectionCounter > 100) {
+                        return originalMethod.apply(this, args);
+                    }
+
+                    let detectionData = {};
+                    try { null[0](); }
+                    catch (error) {
+                        if (!error || !utilityHelper.isString(error.stack)) return originalMethod.apply(this, args);
+                        detectionData.callStack = error.stack || "";
+                    }
+
+                    let returnValue;
+                    try { returnValue = originalMethod.apply(this, args); }
+                    catch (e) { returnValue = e; throw e; }
+
+                    try {
+                        let hasAutomationPattern = automationPatterns.test(detectionData.callStack);
+                        let isHandlerDetected = false;
+                        for (let handler of customHandlers) {
+                            try { isHandlerDetected = handler(detectionData, args); } catch (e) {}
+                            if (isHandlerDetected) break;
+                        }
+
+                        if (hasAutomationPattern || isHandlerDetected) {
+                            detectionData.val = args.length > 0 && utilityHelper.isString(args[0]) ? args[0].substring(0,50) : JSON.stringify(args[0]).substring(0,50);
+                            detectionData.callersStack = getCallStackString(arguments.callee);
+                            stiHasDetectionFired = true;
+                            detectionData.extra = detectionData.extra ? `${detectionData.extra} ${detectionType}` : detectionType;
+                            recordDetection("sti_stack_trace_anomaly", detectionData);
+                        }
+                    } catch (e) {}
+                    return returnValue;
+                };
+            };
+
+            const instrumentDOMMethod = (objectName, methodName, detectionType, customHandlers = [], delayCheck = utilityHelper.shouldRunCheck(checkInterval)) => {
+                if (!delayCheck) return;
+                try {
+                    const targetObjectProto = windowObj[objectName] && windowObj[objectName].prototype;
+                    if (targetObjectProto && utilityHelper.isFunction(targetObjectProto[methodName]) && generalUtils.isNativeMethod(targetObjectProto[methodName])) {
+                        const originalMethod = targetObjectProto[methodName];
+                        targetObjectProto[methodName] = createInstrumentedHandler(originalMethod, detectionType, customHandlers);
+                    }
+                } catch (e) {}
+            };
+
+            const instrumentGlobalMethod = (methodName, detectionType, customHandlers = [], delayCheck = utilityHelper.shouldRunCheck(checkInterval)) => {
+                if (!delayCheck) return;
+                try {
+                    const originalMethod = windowObj[methodName];
+                    if (originalMethod && utilityHelper.isFunction(originalMethod) && generalUtils.isNativeMethod(originalMethod)) {
+                        windowObj[methodName] = createInstrumentedHandler(originalMethod, detectionType, customHandlers);
+                    }
+                } catch (e) {}
+            };
+
+            const isTaikoAutomation = (data) => /tryToFindNode/.test(data.callStack) && /pollForNode/.test(data.callStack);
+            const isFirefoxAutomation = (data) => {
+                try {
+                    const locationRegex = new RegExp("@" + locationObj.href.replace(/\?/g, "\\?") + "\\:(\\d+)\\:8[^\\S]$");
+                    const match = data.callStack.match(locationRegex);
+                    if (match && match[1]) {
+                        data.extra = "ff-mar-es";
+                        return true;
+                    }
+                } catch (e) {}
+                return false;
+            };
+
+            instrumentDOMMethod("Document", "evaluate", "eva", [isFirefoxAutomation, isTaikoAutomation]);
+            instrumentDOMMethod("Element", "getAttributeNode", "gan", [isFirefoxAutomation]);
+            instrumentDOMMethod("Element", "getClientRects", "gcr");
+            instrumentDOMMethod("IntersectionObserver", "observe", "ioo");
+            instrumentDOMMethod("Document", "querySelector", "qs", [isTaikoAutomation]);
+            instrumentDOMMethod("XMLSerializer", "serializeToString", "xsts");
+            instrumentDOMMethod("Document", "querySelectorAll", "qsa", [isTaikoAutomation]);
+            instrumentGlobalMethod("scrollBy", "scrb", [isFirefoxAutomation]);
+            instrumentGlobalMethod("scrollTo", "scrt", [isFirefoxAutomation]);
+
+            if (utilityHelper.shouldRunCheck(checkInterval) && windowObj.Promise && windowObj.Reflect && generalUtils.isNativeMethod(windowObj.Reflect.construct) && windowObj.Proxy) {
+                const originalPromise = windowObj.Promise;
+                const proxyHandler = {
+                    construct: function(target, args) {
+                        stiDetectionCounter++;
+                        if (stiHasDetectionFired || stiDetectionCounter > 100) return Reflect.construct(target, args);
+                        
+                        let detectionData = {};
+                        try { null[0](); } catch (e) {
+                            if (!e || !utilityHelper.isString(e.stack)) return Reflect.construct(target, args);
+                            detectionData.callStack = e.stack || "";
+                        }
+
+                        try {
+                            let hasAutomationPattern = automationPatterns.test(detectionData.callStack);
+                            let isTaiko = /waitForPredicatePageFunction/.test(detectionData.callStack) && /pollRaf/.test(detectionData.callStack);
+
+                            if (hasAutomationPattern || isTaiko) {
+                                detectionData.extra = detectionData.extra ? `${detectionData.extra} prom` : "prom";
+                                recordDetection("sti_promise_anomaly", detectionData);
+                            }
+                        } catch (e) {}
+                        return Reflect.construct(target, args);
+                    }
+                };
+                try {
+                    windowObj.Promise = new Proxy(originalPromise, proxyHandler);
+                } catch(e) {
+                    windowObj.Promise = originalPromise;
                 }
             }
-        }
-        
-        function checkElectron() {
-            try {
-                if (window.close && typeof window.close === 'function' && window.close.toString().includes("ELECTRON")) {
-                    recordDetection('electron_close_method');
-                }
-            } catch(e) { /*ignore*/ }
-        }
 
-        function checkPrototypeChain() {
-            if (Navigator.prototype && Object.getPrototypeOf(navigator) !== Navigator.prototype) {
-                recordDetection('navigator_prototype_modified');
-            }
-        }
-        
-        function checkClonedPrototypes() {
-            const props = Object.getOwnPropertyNames(window);
-            const cdcArray = props.find(p => /^cdc_[a-zA-Z0-9]{22}_Array$/.test(p));
-            const cdcSymbol = props.find(p => /^cdc_[a-zA-Z0-9]{22}_Symbol$/.test(p));
-            const cdcPromise = props.find(p => /^cdc_[a-zA-Z0-9]{22}_Promise$/.test(p));
-
-            if (cdcArray && window[cdcArray] === window.Array &&
-                cdcSymbol && window[cdcSymbol] === window.Symbol &&
-                cdcPromise && window[cdcPromise] === window.Promise) {
-                recordDetection('cloned_prototypes_cdc_pattern', {array: cdcArray, symbol: cdcSymbol, promise: cdcPromise});
-            }
-        }
-
-        function updateSummary() {
-            if (detectionLog.length > 0) {
-                statusElement.innerHTML = `<strong style="color: #ff6b6b;">Automation Detected!</strong> Found ${detectionLog.length} indicators.`;
-                console.warn("--- Automation Detection Summary ---");
-                detectionLog.forEach(log => console.warn(`[DETECTED] Type: ${log.type}`, log.details));
-                console.warn("--- End of Summary ---");
-            } else {
-                statusElement.innerHTML = '<strong style="color: #2e7d32;">No Automation Detected</strong>';
-                resultsElement.innerHTML = '<p class="no-detection">No direct automation framework artifacts were detected by this script.</p>';
-                console.log("No direct automation framework artifacts detected by this script.");
-            }
-        }
-
-        function runChecks() {
-            console.log("Starting automation framework detection checks...");
-            resultsElement.innerHTML = '<p>Running checks...</p>';
-
-            // Most reliable checks first
-            if (navigator.webdriver === true) {
-                recordDetection('navigator.webdriver', { value: true });
-            }
-            
-            checkGlobalVariables();
-            checkDocumentPropertiesAndAttributes();
-            checkCEF();
-            checkModifiedNativeFunctions();
-            checkElectron();
-            checkPrototypeChain();
-            checkClonedPrototypes();
-            
-            // More specific reliable checks
-            listenWebDriverEvents();
-            setupStackTraceAnalysis();
-            
-            // Add DOM-dependent checks only when DOM is ready
-            if (document.readyState === 'complete' || document.readyState === 'interactive') {
-                checkMutationObserverAttributes();
-                // Remove the unreliable checks that cause false positives
-                // checkErrorObjectManipulation();
-                checkNavigatorWebdriver(); // Our updated version only checks for non-standard implementations
-            } else {
-                window.addEventListener('DOMContentLoaded', () => {
-                    checkMutationObserverAttributes();
-                    // checkErrorObjectManipulation();
-                    checkNavigatorWebdriver();
+            if (utilityHelper.shouldRunCheck(checkInterval)) {
+                domHelper.addEventListener(windowObj, "click", function(event) {
+                    if (domHelper.eventIsTrusted(event) === 0) {
+                        let detectionData = {};
+                        try { null[0](); } catch (e) {
+                            if (!e || !utilityHelper.isString(e.stack)) return;
+                            detectionData.callStack = e.stack || "";
+                        }
+                        const hasAutomationPattern = automationPatterns.test(detectionData.callStack);
+                        const isFirefox = isFirefoxAutomation(detectionData);
+                        if (hasAutomationPattern || isFirefox) {
+                            detectionData.callersStack = getCallStackString(arguments.callee);
+                            stiHasDetectionFired = true;
+                            detectionData.extra = detectionData.extra ? `${detectionData.extra} clk` : "clk";
+                            recordDetection("sti_untrusted_click_anomaly", detectionData);
+                        }
+                    }
                 });
             }
+        },
 
-            setTimeout(updateSummary, 2000);
+        _checkEmailFieldInteractions: function() {
+            const emailSelector = 'input[type="email"], input[name="email"], input#email';
+            const emailFields = documentObj.querySelectorAll(emailSelector);
+            utilityHelper.forEachArray(emailFields, (field) => {
+                let hasPasted = false;
+                domHelper.addEventListener(field, "paste", function() {
+                    if (!hasPasted) {
+                        hasPasted = true;
+                        generalUtils.setTimeout(() => {
+                            recordDetection("pem_email_paste", { val_hash: utilityHelper.hashString(field.value) });
+                        }, 0);
+                    }
+                });
+            });
+        },
+
+        _checkViewportResize: function() {
+            const initialViewport = domHelper.getViewportSize();
+            let hasResized = false;
+            const checkSize = () => {
+                if (hasResized) return;
+                const currentViewport = domHelper.getViewportSize();
+                if (currentViewport.w >= initialViewport.w + 100 || currentViewport.h >= initialViewport.h + 100) {
+                    hasResized = true;
+                    recordDetection("fvs_viewport_resize", { val: `${currentViewport.w}x${currentViewport.h}` });
+                }
+            };
+            generalUtils.setTimeout(checkSize, 1000);
+        },
+
+        _checkBizSeaSkyShadowDOM: function() {
+            const bizSeaSkySelector = "bizseasky-focus-wrapper";
+            const focusWrapperSelector = ".focus-wrapper-inner";
+
+            const elements = documentObj.getElementsByTagName(bizSeaSkySelector);
+            if (elements && elements[0] && elements[0].shadowRoot) {
+                const checkShadow = () => {
+                    try {
+                        const focusWrapper = elements[0].shadowRoot.querySelector(focusWrapperSelector);
+                        if (focusWrapper && focusWrapper.childNodes.length >= 1) {
+                            recordDetection("bfs_bizseasky_shadow_dom", { val: focusWrapper.childNodes.length });
+                        }
+                    } catch (e) {}
+                };
+                checkShadow();
+            }
         }
+    };
+
+    function runAllDetections() {
+        console.log("Starting Bot Detection Script...");
         
-        runChecks();
-    })();
+        coreDetector.init();
+        coreDetector.runChecks();
+        
+        advancedDetector.runChecks();
+        
+        setTimeout(() => {
+            if (detections.length === 0) {
+                statusElement.innerHTML = '<strong style="color: #2e7d32;">No Automation Detected</strong>';
+                resultsElement.innerHTML = '<p class="no-detection">No direct automation framework artifacts were detected by this script.</p>';
+                console.log("No automation detected after all checks completed.");
+            }
+        }, 3000);
+    }
+
+    if (documentObj.readyState === "complete" || documentObj.readyState === "interactive") {
+        runAllDetections();
+    } else {
+        domHelper.addEventListener(documentObj, "DOMContentLoaded", runAllDetections);
+    }
+})();
     </script>
 </body>
 </html>
