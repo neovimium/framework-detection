@@ -54,6 +54,19 @@
             font-size: 0.8em;
             margin-top: 4px;
         }
+        
+        .info-box {
+            background-color: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 10px 15px;
+            margin: 15px 0;
+            border-radius: 4px;
+        }
+        
+        .info-box h3 {
+            margin-top: 0;
+            color: #0d47a1;
+        }
     </style>
 </head>
 <body>
@@ -61,6 +74,11 @@
         <h1>Browser Automation Detection</h1>
         <p>This page runs various detection techniques to identify browser automation frameworks like Selenium, Puppeteer, Playwright, and others.</p>
         <div id="status">Running detection checks...</div>
+        <div class="info-box">
+            <h3>About This Tool</h3>
+            <p>This detector is designed to detect <strong>actual automation tools</strong>, not normal browser features. The script has been calibrated to minimize false positives in standard browser environments.</p>
+            <p>Some browsers may naturally have properties that resemble automation tools, but these are not included in our detection algorithm.</p>
+        </div>
         <div id="results" class="results">
             <p>Detection results will appear here...</p>
         </div>
@@ -115,16 +133,19 @@
         }
 
         function checkNavigatorWebdriver() {
+            // Only detect if navigator.webdriver is explicitly true
             if (navigator.webdriver === true) {
                 recordDetection('navigator.webdriver', { value: true });
             }
+            
+            // Modern browsers might have this property but it doesn't mean automation
+            // Only check for non-standard implementation
             try {
-                if (typeof navigator.__lookupGetter__ === 'function' && navigator.__lookupGetter__('webdriver')) {
-                    recordDetection('navigator.webdriver_getter', { present: true });
-                }
                 const descriptor = Object.getOwnPropertyDescriptor(Navigator.prototype, 'webdriver');
-                if (descriptor) {
-                    recordDetection('navigator.webdriver_descriptor', { descriptor: JSON.stringify(descriptor) });
+                if (descriptor && descriptor.get && isMethodNonNative(descriptor.get)) {
+                    recordDetection('navigator.webdriver_modified_getter', { 
+                        nonNativeCode: getNonNativeMethodBody(descriptor.get) 
+                    });
                 }
             } catch (e) { /* ignore */ }
         }
@@ -281,45 +302,49 @@
         }
 
         function checkErrorObjectManipulation() {
-            const error = new Error();
-            let detected = false;
-            const originalStack = error.stack;
-
-            try {
-                Object.defineProperty(error, 'stack', {
-                    configurable: false,
-                    enumerable: false,
-                    get: function() {
-                        detected = true;
-                        recordDetection('error_stack_get_hooked');
-                        return originalStack + '\n  at HookedGetter (evil.js:1:1)';
-                    }
-                });
-                console.log(error.stack);
-            } catch (e) {
-                // If defineProperty fails, this itself could be a sign or just normal browser behavior.
-            }
-
+            // Skip this test as it frequently produces false positives in normal browsers
+            // The error.stack property interaction has changed in modern browsers
+            // which makes this test unreliable
+            
+            // Only run the more specific test for automation tools that actually
+            // modify DevTools behavior
             if (window.Worker && window.Blob && window.URL && window.URL.createObjectURL) {
                 try {
                     const workerScript = `
                         onmessage = function() {
-                            let detectedInWorker = false;
-                            const err = new Error('WorkerError');
-                            const originalWorkerStack = err.stack;
+                            const detectionResult = {
+                                hasDevToolsHook: false,
+                                modifiedStack: false,
+                                reasons: []
+                            };
+                            
                             try {
-                                Object.defineProperty(err, 'stack', {
-                                    configurable: false,
-                                    enumerable: false,
-                                    get: function() {
-                                        detectedInWorker = true;
-                                        return originalWorkerStack + '\\n  at HookedGetterInWorker (worker.js:1:1)';
-                                    }
-                                });
-                                try { console.log(err.stack); } catch(e){}
-                                postMessage(detectedInWorker);
+                                // Test for specific DevTools hooks, not just any stack property access
+                                const originalConsoleLog = console.log;
+                                let consoleLogCalled = false;
+                                
+                                console.log = function() {
+                                    consoleLogCalled = true;
+                                    return originalConsoleLog.apply(console, arguments);
+                                };
+                                
+                                // Force an error and read its stack in a way that would trigger DevTools
+                                const err = new Error('DetectionTest');
+                                const stackProp = Object.getOwnPropertyDescriptor(err, 'stack');
+                                
+                                // Only report if we detect actual modification by automation tools
+                                if (stackProp && stackProp.get && /automationTool|selenium|puppeteer|playwright/i.test(stackProp.get.toString())) {
+                                    detectionResult.hasDevToolsHook = true;
+                                    detectionResult.reasons.push('Stack getter contains automation strings');
+                                }
+                                
+                                // Restore console.log
+                                console.log = originalConsoleLog;
+                                
+                                // Only report if we're confident this is automation behavior
+                                postMessage(detectionResult);
                             } catch (e) {
-                                postMessage(false);
+                                postMessage({ error: e.toString() });
                             }
                         };
                     `;
@@ -327,8 +352,8 @@
                     const url = URL.createObjectURL(blob);
                     const worker = new Worker(url);
                     worker.onmessage = function(e) {
-                        if (e.data === true) {
-                            recordDetection('error_stack_get_hooked_worker');
+                        if (e.data.hasDevToolsHook) {
+                            recordDetection('devtools_hooks_detected', e.data);
                         }
                         worker.terminate();
                         URL.revokeObjectURL(url);
@@ -446,25 +471,34 @@
             console.log("Starting automation framework detection checks...");
             resultsElement.innerHTML = '<p>Running checks...</p>';
 
-            checkNavigatorWebdriver();
+            // Most reliable checks first
+            if (navigator.webdriver === true) {
+                recordDetection('navigator.webdriver', { value: true });
+            }
+            
             checkGlobalVariables();
             checkDocumentPropertiesAndAttributes();
-            listenWebDriverEvents();
             checkCEF();
             checkModifiedNativeFunctions();
             checkElectron();
             checkPrototypeChain();
             checkClonedPrototypes();
             
+            // More specific reliable checks
+            listenWebDriverEvents();
+            setupStackTraceAnalysis();
+            
+            // Add DOM-dependent checks only when DOM is ready
             if (document.readyState === 'complete' || document.readyState === 'interactive') {
-                setupStackTraceAnalysis();
-                checkErrorObjectManipulation();
                 checkMutationObserverAttributes();
+                // Remove the unreliable checks that cause false positives
+                // checkErrorObjectManipulation();
+                checkNavigatorWebdriver(); // Our updated version only checks for non-standard implementations
             } else {
                 window.addEventListener('DOMContentLoaded', () => {
-                    setupStackTraceAnalysis();
-                    checkErrorObjectManipulation();
                     checkMutationObserverAttributes();
+                    // checkErrorObjectManipulation();
+                    checkNavigatorWebdriver();
                 });
             }
 
