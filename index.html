@@ -69,6 +69,12 @@
             margin-top: 0;
             color: #0d47a1;
         }
+
+        .category {
+            margin-top: 15px;
+            font-weight: bold;
+            color: #333;
+        }
     </style>
 </head>
 <body>
@@ -87,1036 +93,633 @@
     </div>
 
     <script>
-(function() {
-    'use strict';
-
-    const windowObj = window;
-    const documentObj = document;
-    const navigatorObj = navigator;
-    const screenObj = screen;
-    const locationObj = location;
-    const resultsElement = document.getElementById('results');
-    const statusElement = document.getElementById('status');
-
-    const utilityHelper = {
-        _decodeString: function(encodedString, offset) {
-            let decodedString = "";
-            for (let i = 0; i < encodedString.length; i++) {
-                decodedString += String.fromCharCode(encodedString[i] - offset);
-            }
-            return decodedString;
-        },
-        isFunction: function(value) {
-            return typeof value === 'function';
-        },
-        isString: function(value) {
-            return typeof value === 'string';
-        },
-        isUndefined: function(value) {
-            return typeof value === 'undefined';
-        },
-        isNumber: function(value) {
-            return typeof value === 'number';
-        },
-        isObject: function(value) {
-            return value !== null && typeof value === 'object';
-        },
-        isArrayLike: function(value) {
-            return value != null && typeof value.length === 'number' && value.length >= 0;
-        },
-        serializeObj: function(obj, separator = ',', includeKey = false) {
-            if (!obj) return '';
-            let parts = [];
-            for (let key in obj) {
-                if (obj.hasOwnProperty(key)) {
-                    if (includeKey) parts.push(key);
-                    parts.push(obj[key]);
-                }
-            }
-            return parts.join(separator);
-        },
-        hashString: function(str) {
-            if (!str) return 0;
-            let hash = 2166136261;
-            for (let i = 0; i < str.length; i++) {
-                hash ^= str.charCodeAt(i);
-                hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
-            }
-            return hash >>> 0;
-        },
-        decodeRotString: function(str, rot) {
-            let result = "";
-            for (let i = 0; i < str.length; i++) {
-                let charCode = str.charCodeAt(i);
-                if (charCode >= 65 && charCode <= 90) {
-                    result += String.fromCharCode(((charCode - 65 - rot + 26) % 26) + 65);
-                } else if (charCode >= 97 && charCode <= 122) {
-                    result += String.fromCharCode(((charCode - 97 - rot + 26) % 26) + 97);
-                } else {
-                    result += str[i];
-                }
-            }
-            return result;
-        },
-        findInArray: function(arr, predicate) {
-            for (let i = 0; i < arr.length; i++) {
-                if (predicate(arr[i], i, arr)) {
-                    return arr[i];
-                }
-            }
-            return undefined;
-        },
-        forEachArray: function(arr, callback) {
-            if (!arr || !arr.length) return;
-            for (let i = 0; i < arr.length; i++) {
-                callback(arr[i], i, arr);
-            }
-        },
-        stringContains: function(str, substring) {
-            if (!str || !substring) return false;
-            return str.indexOf(substring) > -1;
-        },
-        getRandomNumber: function(min, max) {
-            if (utilityHelper.isUndefined(max)) {
-                max = min;
-                min = 0;
-            }
-            return Math.floor(Math.random() * (max - min + 1)) + min;
-        },
-        shouldRunCheck: function(probabilityOutOf1000) {
-            return Math.random() < (probabilityOutOf1000 / 1000);
-        },
-        getUniqueValues: function(arr) {
-            if (!arr || !arr.length) return [];
-            const unique = [];
-            const seen = {};
-            for (let i = 0; i < arr.length; i++) {
-                const val = arr[i];
-                if (!seen[val]) {
-                    seen[val] = true;
-                    unique.push(val);
-                }
-            }
-            return unique;
-        }
-    };
-
-    const domHelper = {
-        getTimestamp: function() {
-            return +new Date();
-        },
-        runInWorker: function(data, workerFunction, callback) {
-            try {
-                if (windowObj.Blob && windowObj.Worker) {
-                    const workerCode = `
-                        self.onmessage = function(e) {
-                            const workerFunc = ${workerFunction.toString()};
-                            const result = workerFunc(e.data.payload, function(res) { postMessage(res); });
-                            if (typeof result !== 'undefined' && result !== null) {
-                                postMessage(result);
-                            }
-                        };
-                    `;
-                    const blob = new windowObj.Blob([workerCode], { type: 'application/javascript' });
-                    const worker = new windowObj.Worker(windowObj.URL.createObjectURL(blob));
-                    worker.onmessage = function(e) {
-                        callback(e.data);
-                        worker.terminate();
-                        windowObj.URL.revokeObjectURL(blob);
-                    };
-                    worker.onerror = function(e) {
-                        console.error("Worker error:", e);
-                        callback(null);
-                        worker.terminate();
-                        windowObj.URL.revokeObjectURL(blob);
-                    };
-                    worker.postMessage({ payload: data });
-                } else {
-                    callback(null);
-                }
-            } catch (e) {
-                console.error("runInWorker setup error:", e);
-                callback(null);
-            }
-        },
-        addEventListener: function(element, eventName, handler, useCapture = false) {
-            if (element && element.addEventListener) {
-                element.addEventListener(eventName, handler, useCapture);
-            }
-        },
-        setAttribute: function(element, attrName, attrValue) {
-            if (element && element.setAttribute) {
-                element.setAttribute(attrName, attrValue);
-            }
-        },
-        getStyleProperty: function(element, propName) {
-            if (windowObj.getComputedStyle && element) {
-                return windowObj.getComputedStyle(element).getPropertyValue(propName);
-            }
-            return null;
-        },
-        eventIsTrusted: function(event) {
-            if (utilityHelper.isUndefined(event)) return -2;
-            const isTrusted = event.isTrusted;
-            if (utilityHelper.isUndefined(isTrusted) || typeof isTrusted !== 'boolean') return -1;
-            return isTrusted ? 1 : 0;
-        },
-        getViewportSize: function() {
-            return {
-                w: windowObj.innerWidth,
-                h: windowObj.innerHeight
-            };
-        },
-        getVisibilityState: function() {
-             return documentObj.visibilityState || documentObj.mozVisibilityState || documentObj.webkitVisibilityState || documentObj.msVisibilityState || 'visible';
-        }
-    };
-
-    const generalUtils = {
-        getBrowserVendor: function() {
-            return navigatorObj.vendor || "";
-        },
-        getPerformanceNow: function(fallback) {
-            if (windowObj.performance && windowObj.performance.now) {
-                return windowObj.performance.now();
-            }
-            return fallback ? fallback() : 0;
-        },
-        isNativeMethod: function(method) {
-            try {
-                if (!utilityHelper.isFunction(method)) return false;
-                const methodStr = Function.prototype.toString.call(method);
-                return /\[native code\]/.test(methodStr);
-            } catch (e) {
-                return false;
-            }
-        },
-        getFunctionHash: function(fn, options = {}) {
-            const maxLength = options.maxLength || 1024;
-            const includeDetails = options.includeDetails || false;
-            try {
-                const fnString = Function.prototype.toString.call(fn).trim().substring(0, maxLength);
-                const hash = utilityHelper.hashString(fnString);
-                return includeDetails ? `${hash}|${fnString}` : hash.toString();
-            } catch (e) {
-                return 'error_hashing_function';
-            }
-        },
-        setTimeout: function(callback, delay) {
-            return setTimeout(callback, delay);
-        }
-    };
-
-    const detections = [];
-    let detectionCounters = 0;
-    const detectionHistory = {};
-    const scriptStartTime = domHelper.getTimestamp();
-
-    function recordDetection(detectionType, detectionData = {}) {
-        detectionHistory[detectionType] = (detectionHistory[detectionType] || 0) + 1;
-        if (detectionHistory[detectionType] > 3) {
-            console.warn(`Detection [${detectionType}] triggered too many times. Suppressing.`);
-            return;
-        }
-
-        const report = {
-            type: detectionType,
-            count: ++detectionCounters,
-            history: JSON.parse(JSON.stringify(detectionHistory)),
-            timestamp_offset: domHelper.getTimestamp() - scriptStartTime,
-            details: detectionData
-        };
-        detections.push(report);
-        console.warn("BOT DETECTION:", report);
-        
-        const detectionElement = document.createElement('div');
-        detectionElement.className = 'detection';
-        const detectionTime = new Date().toLocaleTimeString();
-        
-        let detailsText = '';
-        if (detectionData) {
-            try {
-                detailsText = JSON.stringify(detectionData);
-            } catch (e) {
-                detailsText = '(Complex object)';
-            }
-        }
-        
-        detectionElement.innerHTML = `
-            <strong>${detectionType}</strong>
-            <div>${detailsText}</div>
-            <div class="timestamp">${detectionTime}</div>
-        `;
-        
-        if (resultsElement.firstChild.nodeName.toLowerCase() === 'p') {
-            resultsElement.innerHTML = '';
-        }
-        
-        resultsElement.appendChild(detectionElement);
-        
-        statusElement.innerHTML = `<strong style="color: #ff6b6b;">Automation Detected!</strong> Found ${detections.length} indicators.`;
-    }
-
-    const coreDetector = {
-        checks: [],
-        runChecks: function() {
-            console.log("Running Core Detector Checks...");
-            this.checks.forEach((check, index) => {
-                try {
-                    const result = check.fn();
-                    if (result) {
-                        recordDetection(check.name, { result: result === true ? "Detected" : result });
-                    }
-                } catch (e) {}
-            });
-        },
-
-        _addCheck: function(name, fn) {
-            this.checks.push({ name, fn });
-        },
-
-        init: function() {
-            const charCodeConst = "fromCharCode";
-            const navigatorProp = "navigator";
-            const underscoreChar = "_";
-            const evalPropName = underscoreChar + "evaluate";
-            const scriptPropName = underscoreChar + "script";
-            const unwrappedPropName = underscoreChar + "unwrapped";
-            const seleniumString = "selenium";
-            const driverString = "driver";
-            const webdriverString = "web" + driverString;
-            const phantomString = "phantom";
-            const domAutomationString = "domAutomation";
-            const callString = "call";
-
-            const getWindowProperty = (propertyPath, useTop = false) => {
-                let targetObject = windowObj;
-                if (useTop && windowObj.top !== windowObj) {
+        // Automation Detection Script
+        (function() {
+            // Utility functions
+            const utils = {
+                // Checks if a property exists on an object
+                hasProperty: function(obj, prop) {
                     try {
-                        if (windowObj.top.location.href) targetObject = windowObj.top;
-                    } catch (e) {}
-                }
-                const propertyParts = propertyPath.split(".");
-                for (let i = 0; i < propertyParts.length; i++) {
-                    if (!targetObject || utilityHelper.isUndefined(targetObject[propertyParts[i]])) return undefined;
-                    targetObject = targetObject[propertyParts[i]];
-                }
-                return targetObject;
-            };
-
-            const isMethodNonNative = (method) => {
-                if (!utilityHelper.isFunction(method)) return false;
-                return !generalUtils.isNativeMethod(method);
-            };
-
-            this._addCheck("zeroScreenSize", () => screenObj.width <= 1 || screenObj.height <= 1);
-            this._addCheck("zeroAvailableScreenSize", () => screenObj.availHeight <= 1 || screenObj.availWidth <= 1);
-
-            this._addCheck("cefQueryProperties", () => {
-                const hasCefQuery = utilityHelper.isFunction(getWindowProperty("cefQuery"));
-                const hasCefQueryCancel = utilityHelper.isFunction(getWindowProperty("cefQueryCancel"));
-                return (hasCefQuery || hasCefQueryCancel) ? { cefQuery: hasCefQuery, cefQueryCancel: hasCefQueryCancel } : false;
-            });
-
-            this._addCheck("modifiedNavigatorProperties", () => {
-                try {
-                    const userAgentDescriptor = Object.getOwnPropertyDescriptor(navigatorObj, "userAgent");
-                    const platformDescriptor = Object.getOwnPropertyDescriptor(navigatorObj, "platform");
-                    if (userAgentDescriptor && userAgentDescriptor.get && isMethodNonNative(userAgentDescriptor.get)) return "userAgent getter modified";
-                    if (platformDescriptor && platformDescriptor.get && isMethodNonNative(platformDescriptor.get)) return "platform getter modified";
-                } catch (e) {}
-                return false;
-            });
-
-            this._addCheck("automationGlobals", () => {
-                const automationGlobals = [
-                    "_" + phantomString, "__nightmare", "_" + seleniumString,
-                    callString + "Phantom", callString + "Selenium",
-                    "_Selenium_IDE_Recorder", domAutomationString, domAutomationString + "Controller",
-                    "_" + webdriverString.toUpperCase() + "_ELEM_CACHE",
-                    "wptagentGetInteractivePeriods", "fSCInitialize", "__webdriverFunc",
-                    "geb", "awesomium", "$chrome_asyncScriptInfo", webdriverString,
-                    "_WEBDRIVER_ELEM_CACHE", "$cdc_asdjflasutopfhvcZLmcfl_", evalPropName
-                ];
-                for (let glob of automationGlobals) {
-                    if (getWindowProperty(glob, true) !== undefined) return glob;
-                }
-                return false;
-            });
-
-            this._addCheck("automationDocProps", () => {
-                const automationProps = [
-                    "__webdriver" + evalPropName, "__selenium" + evalPropName,
-                    "__webdriver" + scriptPropName + "_function", "__webdriver" + scriptPropName + "_func",
-                    "__webdriver" + scriptPropName + "_fn", "__fx" + driverString + evalPropName,
-                    "__driver" + unwrappedPropName, "__webdriver" + unwrappedPropName,
-                    "__driver" + evalPropName, "__selenium" + unwrappedPropName,
-                    "__fx" + driverString + unwrappedPropName, "__$webdriverAsyncExecutor",
-                    "$chrome_asyncScriptInfo", webdriverString, "__webdriverFunc",
-                    "_WEBDRIVER_ELEM_CACHE", "$xwalk_asyncScriptInfo"
-                ];
-                for (let prop of automationProps) {
-                    if (documentObj[prop] !== undefined || getWindowProperty("document." + prop) !== undefined) return prop;
-                }
-                return false;
-            });
-            
-            this._addCheck("webdriverProperty", () => !utilityHelper.isUndefined(navigatorObj[webdriverString]));
-            
-            this._addCheck("webdriverAttributesOnDocument", () => {
-                const docEl = documentObj.documentElement;
-                if (docEl.getAttribute(seleniumString) || docEl.getAttribute(webdriverString) ||
-                    docEl.getAttribute(driverString) || docEl.getAttribute("cd_frame_id_")) {
-                    return "Attribute on documentElement";
-                }
-                const iframes = Array.from(documentObj.getElementsByTagName("iframe"));
-                const frames = Array.from(documentObj.getElementsByTagName("frame"));
-                for (let frame of [...iframes, ...frames]) {
-                    if (frame.getAttribute(seleniumString) || frame.getAttribute(webdriverString) ||
-                        frame.getAttribute(driverString) || frame.getAttribute("cd_frame_id_")) {
-                        return "Attribute on frame/iframe element";
+                        return prop in obj;
+                    } catch (e) {
+                        return false;
                     }
-                }
-                return false;
-            });
-
-            this._addCheck("webGLRendererAnomalies", () => {
-                try {
-                    const canvas = documentObj.createElement("canvas");
-                    const gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
-                    if (!gl) return "No WebGL";
-                    const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
-                    if (!debugInfo) return "No WEBGL_debug_renderer_info";
-                    const vendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL);
-                    const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
-                    if (renderer.toLowerCase().includes("swiftshader") || renderer.toLowerCase().includes("llvmpipe")) return `Software Renderer: ${renderer}`;
-                    if (vendor.toLowerCase().includes("google") && renderer.toLowerCase().includes("angle")) return false;
-                } catch (e) { return "WebGL check error"; }
-                return false;
-            });
-
-            this._addCheck("phantomJSStack", () => {
-                try { null[0](); } catch (e) { return e.stack && e.stack.includes("phantomjs"); }
-                return false;
-            });
-
-            this._addCheck("userAgentModification", () => {
-                 try {
-                    const uaDesc = Object.getOwnPropertyDescriptor(Navigator.prototype, 'userAgent');
-                    if (uaDesc && uaDesc.get && isMethodNonNative(uaDesc.get)) {
-                        return "navigator.userAgent getter modified";
-                    }
-                } catch (e) {}
-                return false;
-            });
-
-            this._addCheck("chromeBenchmarkingAPI", () => windowObj.chrome && (windowObj.chrome.benchmarking || windowObj.chrome.send));
-            
-            this._addCheck("documentCookieModification", () => {
-                try {
-                    const cookieDesc = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie') || Object.getOwnPropertyDescriptor(HTMLDocument.prototype, 'cookie');
-                    if (cookieDesc && cookieDesc.get && isMethodNonNative(cookieDesc.get)) return "document.cookie getter modified";
-                    if (cookieDesc && cookieDesc.set && isMethodNonNative(cookieDesc.set)) return "document.cookie setter modified";
-                } catch (e) {}
-                return false;
-            });
-
-            this._addCheck("smallColorDepth", () => screenObj.colorDepth <= 8 || screenObj.pixelDepth <= 8 || windowObj.devicePixelRatio <= 0);
-            
-            this._addCheck("spoofedChrome", () => /Chrome/.test(navigatorObj.userAgent) && /Google Inc\./.test(navigatorObj.vendor) && (!windowObj.chrome));
-            
-            this._addCheck("watirProperties", () => {
-                const watirProps = ["__lastWatirAlert", "__lastWatirPrompt", "__lastWatirConfirm"];
-                for (let prop of watirProps) if (!utilityHelper.isUndefined(windowObj[prop])) return prop;
-                return false;
-            });
-            
-            this._addCheck("permissionsAPIModified", () => {
-                try {
-                    if (navigatorObj.permissions && utilityHelper.isFunction(navigatorObj.permissions.query) && isMethodNonNative(navigatorObj.permissions.query)) {
-                        return "navigator.permissions.query modified";
-                    }
-                } catch (e) {}
-                return false;
-            });
-
-            this._addCheck("callPhantomProperty", () => !!getWindowProperty("callPhantom"));
-            
-            this._addCheck("spoofedAppleOS", () => utilityHelper.isUndefined(windowObj.ApplePaySession) && /iPad|iPhone|iPod/.test(navigatorObj.platform));
-            
-            this._addCheck("chromeExtensionProperty", () => windowObj.chrome && !!windowObj.chrome.extension);
-
-            this._addCheck("nodejsProperties", () => {
-                const nodeProps = ["require", "process", "Buffer", "emit", "spawn"];
-                for (let prop of nodeProps) {
-                    if (!utilityHelper.isUndefined(windowObj[prop])) {
-                         if (prop === 'require' && utilityHelper.isFunction(windowObj.require) && windowObj.require.toString().includes("nodeRequire")) {
-                            return "Node.js 'require' detected";
-                        } else if (prop !== 'require') {
-                            return `Node.js global '${prop}' detected`;
-                        }
-                    }
-                }
-                return false;
-            });
-            
-            this._addCheck("webdriverPropertyModified", () => {
-                try {
-                    if (navigatorObj.hasOwnProperty(webdriverString) && navigatorObj[webdriverString] === false) {
-                        const descriptor = Object.getOwnPropertyDescriptor(Navigator.prototype, webdriverString) || Object.getOwnPropertyDescriptor(navigatorObj, webdriverString);
-                        if (descriptor && (descriptor.get || descriptor.configurable)) {
-                            return `navigator.webdriver is false but seems tampered (getter/configurable)`;
-                        }
-                    }
-                } catch (e) {}
-                return false;
-            });
-
-            this._addCheck("boundBrowserAPIs", () => {
-                const isBound = (fn) => fn && fn.name && fn.name.startsWith("bound ");
-                if (isBound(navigatorObj.getUserMedia) || isBound(navigatorObj.webkitGetUserMedia) || isBound(navigatorObj.mozGetUserMedia)) return "getUserMedia bound";
-                if (navigatorObj.getBattery && isBound(navigatorObj.getBattery)) return "getBattery bound";
-                return false;
-            });
-
-            this._addCheck("inconsistentChromePlugins", () => {
-                if (navigatorObj.plugins && navigatorObj.plugins.length > 0) {
-                    const plugins = Array.from(navigatorObj.plugins);
-                    const hasChromePDF = plugins.some(p => p.name === "Chrome PDF Viewer");
-                    const hasNativeClient = plugins.some(p => p.name === "Native Client");
-                    if (windowObj.chrome && (!hasChromePDF || !hasNativeClient) && plugins.length < 5) {
-                        return "Few plugins, missing standard Chrome PDF/NaCl";
-                    }
-                }
-                return false;
-            });
-
-            this._addCheck("CypressGlobal", () => typeof windowObj.Cypress === 'object' && utilityHelper.isFunction(windowObj.Cypress.isCy));
-
-            this._addCheck("cookieDisabled", () => {
-                try {
-                    documentObj.cookie = "cq_tst=1";
-                    const enabled = documentObj.cookie.includes("cq_tst=1");
-                    documentObj.cookie = "cq_tst=; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-                    return !enabled;
-                } catch (e) { return true; }
-            });
-
-            this._addCheck("localStorageDisabled", () => {
-                try {
-                    windowObj.localStorage.setItem("_cq_tst", "1");
-                    windowObj.localStorage.removeItem("_cq_tst");
-                    return false;
-                } catch (e) { return true; }
-            });
-            
-            this._addCheck("invalidMimeTypeList", () => {
-                 try {
-                    const mimeTypesStr = navigatorObj.mimeTypes && navigatorObj.mimeTypes.toString();
-                    return mimeTypesStr !== "[object MimeTypeArray]" && !/MSMimeTypesCollection/i.test(mimeTypesStr);
-                } catch (e) { return true; }
-            });
-
-            this._addCheck("electronEnvironment", () => {
-                if (typeof process === 'object' && process.versions && process.versions.electron) {
-                    return "process.versions.electron detected";
-                }
-                if (typeof navigatorObj.userAgent === 'string' && navigatorObj.userAgent.includes('Electron')) {
-                    return "User agent contains Electron";
-                }
-                if (typeof windowObj.require === 'function' && typeof windowObj.process === 'object') {
-                    return "window.require and window.process exist (common in Electron renderer)";
-                }
-                return false;
-            });
-
-            this._addCheck("timezoneOffsetModified", () => {
-                try {
-                    const date = new Date();
-                    if (isMethodNonNative(date.getTimezoneOffset)) {
-                        return "Date.prototype.getTimezoneOffset modified";
-                    }
-                } catch (e) {}
-                return false;
-            });
-
-            this._addCheck("prototypeInChromeRuntimeSendMessage", () => {
-                return !!(windowObj.chrome && windowObj.chrome.runtime &&
-                          windowObj.chrome.runtime.sendMessage &&
-                          windowObj.chrome.runtime.sendMessage.prototype);
-            });
-            
-            this._addCheck("nonNumericInnerWidth", () => !utilityHelper.isNumber(windowObj.innerWidth));
-
-            this._addCheck("dateTimeFormatModified", () => {
-                try {
-                    if (windowObj.Intl && windowObj.Intl.DateTimeFormat && isMethodNonNative(windowObj.Intl.DateTimeFormat)) {
-                        return "Intl.DateTimeFormat modified";
-                    }
-                } catch (e) {}
-                return false;
-            });
-            
-            this._addCheck("navigatorPrototypeModified", () => {
-                try {
-                    return Object.getPrototypeOf(navigatorObj) !== Navigator.prototype;
-                } catch (e) { return true; }
-            });
-
-             this._addCheck("braveShieldsUpAudioContext", () => {
-                if (generalUtils.isNativeMethod(navigatorObj.brave && navigatorObj.brave.isBrave) && navigatorObj.brave.isBrave.toString().length < 100) {
-                    try {
-                        if (!windowObj.OfflineAudioContext) return false;
-                        const audioContext = new OfflineAudioContext(1, 1, 44100);
-                        const analyser = audioContext.createAnalyser();
-                        const freqData = new Float32Array(analyser.frequencyBinCount);
-                        analyser.getFloatFrequencyData(freqData);
-                        return utilityHelper.getUniqueValues(freqData).length <= 1;
-                    } catch (e) {}
-                }
-                return false;
-            });
-        }
-    };
-
-    const advancedDetector = {
-        initTime: domHelper.getTimestamp(),
-        isChromeOrGoogleEnv: !!windowObj.chrome || generalUtils.getBrowserVendor() === "Google Inc.",
-
-        runChecks: function() {
-            console.log("Running Advanced Detector Checks...");
-            this._detectDevToolsViaWorker();
-            this._detectDocumentManipulation();
-            this._detectExtensionSideEffects();
-            this._detectHiddenElementInteraction();
-            this._detectWebDriverEvents();
-            this._instrumentNativeMethodsForStackTrace();
-            this._checkEmailFieldInteractions();
-            this._checkViewportResize();
-            this._checkBizSeaSkyShadowDOM();
-            this._detectDevTools();
-        },
-
-        _detectDevTools: function() {
-            let devToolsOpen = false;
-            
-            const checkDevTools = () => {
-                if (!devToolsOpen) {
-                    const widthThreshold = windowObj.outerWidth - windowObj.innerWidth > 160;
-                    const heightThreshold = windowObj.outerHeight - windowObj.innerHeight > 160;
-                    
-                    if (widthThreshold || heightThreshold) {
-                        devToolsOpen = true;
-                        recordDetection("devtools_open", { 
-                            widthDiff: windowObj.outerWidth - windowObj.innerWidth,
-                            heightDiff: windowObj.outerHeight - windowObj.innerHeight
-                        });
-                    }
-                }
-            };
-            
-            checkDevTools();
-            windowObj.addEventListener('resize', checkDevTools);
-            
-            const originalConsole = { 
-                log: console.log, 
-                info: console.info,
-                warn: console.warn,
-                error: console.error,
-                debug: console.debug
-            };
-            
-            const methods = ['log', 'info', 'warn', 'error', 'debug'];
-            
-            methods.forEach(method => {
-                console[method] = function() {
-                    if (!devToolsOpen) {
-                        try {
-                            throw new Error('ConsoleDetect');
-                        } catch (e) {
-                            const stack = e.stack || '';
-                            if (stack.includes('at Object.console')) {
-                                devToolsOpen = true;
-                                recordDetection("devtools_console_access", { method });
-                            }
-                        }
-                    }
-                    return originalConsole[method].apply(console, arguments);
-                };
-            });
-        },
-
-        _detectDevToolsViaWorker: function() {
-            if (!this.isChromeOrGoogleEnv || !windowObj.Blob || !windowObj.Worker) return;
-
-            const detectStrings = [
-                "evaluator",
-                "message",
-                "onmsg",
-                "stack",
-                "console",
-                "debug",
-                "",
-                !1,
-                "MessageChannel"
-            ];
-
-            domHelper.runInWorker(
-                detectStrings,
-                function(testStringArr, callback) {
-                    let isDetected = false;
-                    try {
-                        const testObj = new self[testStringArr[8]]();
-                        const testConfig = {};
-                        testConfig[testStringArr[0]] = testStringArr[7];
-                        testConfig[testStringArr[1]] = testStringArr[7];
-
-                        testConfig[testStringArr[2]] = function() {
-                            isDetected = true;
-                            return testStringArr[6];
-                        };
-                        Object.defineProperty(testObj, testStringArr[3], testConfig);
-
-                        self[testStringArr[4]][testStringArr[5]](testObj);
-                    } catch (error) {}
-                    callback(isDetected);
                 },
-                function(result) {
-                    if (result) {
-                        recordDetection("cdw_devtools_via_worker");
-                    }
-                }
-            );
-        },
-
-        _detectDocumentManipulation: function() {
-            const embeddedCheckString = "window.__selenium_id__";
-            const observeAttrName = "getAttribute";
-            const observeAttrValue = "webdriver";
-
-            for (const propName in documentObj) {
-                try {
-                    if (propName === embeddedCheckString) continue;
-                    const propValue = documentObj[propName];
-                    if (propValue) {
-                        if (propName.match(/\$[a-z]dc_/) || (propValue[observeAttrName] && propValue[observeAttrName] === observeAttrValue)) {
-                            recordDetection("doc_cdc_property", { val: propName, ks: Object.keys(propValue).join(',') });
-                            return;
-                        }
-                        if (propName.match(/__webdriver_script_f/) && typeof propValue === 'function') {
-                            recordDetection("doc_webdriver_script_func", { val: propValue.toString().substring(0, 100) });
-                            return;
-                        }
-                        if (propName.match(/__\$webdriverAsyncExecutor/) && utilityHelper.isFunction(propValue)) {
-                            recordDetection("doc_webdriver_async_executor", { val: propValue.toString().substring(0, 100) });
-                            return;
-                        }
-                        if (propName.match(/\$\w+_asyncScriptInfo/)) {
-                            recordDetection("doc_async_script_info", { val: propValue.toString().substring(0, 100) });
-                            return;
-                        }
-                    }
-                } catch (e) {}
-            }
-        },
-
-        _detectExtensionSideEffects: function() {
-            if (!windowObj.MutationObserver || !documentObj.body) return;
-            try {
-                const shadowDomAttr = "data-cheq-extension-presence";
-                let detectionFired = false;
-                const observer = new MutationObserver(function(mutations, obs) {
-                    for (let i = 0; i < mutations.length; i++) {
-                        const mutation = mutations[i];
-                        if (mutation.type === "attributes" && mutation.attributeName === shadowDomAttr && !detectionFired) {
-                            detectionFired = true;
-                            recordDetection("ext_side_effect_attr_change");
-                            if (obs && obs.disconnect) obs.disconnect();
-                            break;
-                        }
-                    }
-                });
-                observer.observe(documentObj.body, { attributes: true, childList: false, subtree: false });
-            } catch (e) {}
-        },
-
-        _detectHiddenElementInteraction: function() {
-            if (!documentObj.body) return;
-            try {
-                const bodyElement = documentObj.body;
-                const linkElement = documentObj.createElement("a");
-                const divElement = documentObj.createElement("div");
                 
-                linkElement.innerHTML = "___";
-                domHelper.setAttribute(linkElement, "href", "#");
-                domHelper.setAttribute(linkElement, "tabindex", "-1");
-                domHelper.setAttribute(linkElement, "aria-hidden", "true");
-
-                domHelper.addEventListener(linkElement, "click", function(event) {
-                    event.preventDefault(); event.stopPropagation();
-                    const cssProperties = [];
+                // Checks if a method is non-native (overridden)
+                isMethodNonNative: function(method) {
+                    if (!method) return false;
                     try {
-                        if (event.currentTarget) {
-                            cssProperties.push(domHelper.getStyleProperty(event.currentTarget, "opacity"));
-                            cssProperties.push(domHelper.getStyleProperty(event.currentTarget, "zIndex"));
-                        }
-                    } catch (e) {}
-                    recordDetection("hida_honeypot_click", {
-                        isTrusted: domHelper.eventIsTrusted(event),
-                        styles: cssProperties.join(',')
+                        return !Function.prototype.toString.call(method).includes('[native code]');
+                    } catch (e) {
+                        return false;
+                    }
+                },
+                
+                // Gets property descriptor
+                getPropertyDescriptor: function(obj, prop) {
+                    try {
+                        return Object.getOwnPropertyDescriptor(obj, prop);
+                    } catch (e) {
+                        return null;
+                    }
+                },
+                
+                // Checks if running in iframe
+                isInIframe: function() {
+                    try {
+                        return window.self !== window.top;
+                    } catch (e) {
+                        return true; // Access denied means we're in an iframe
+                    }
+                },
+                
+                // Checks if string contains a substring
+                stringContains: function(str, substring) {
+                    return String(str).indexOf(substring) > -1;
+                },
+                
+                // Get all window properties up the prototype chain
+                getAllWindowProperties: function(obj) {
+                    let props = [];
+                    do {
+                        props = props.concat(Object.getOwnPropertyNames(obj));
+                    } while (obj = Object.getPrototypeOf(obj));
+                    return props;
+                }
+            };
+            
+            // Results collector
+            const results = {
+                detections: [],
+                
+                add: function(category, name, details) {
+                    this.detections.push({
+                        category: category,
+                        name: name,
+                        details: details || '',
+                        timestamp: new Date().toISOString()
                     });
-                });
-
-                [divElement, linkElement].forEach((el, i) => {
-                    el.style.opacity = "0.01";
-                    el.style.position = "absolute";
-                    el.style.zIndex = (-1 * (1000 - i)).toString();
-                    el.style.width = "1px";
-                    el.style.height = "1px";
-                    el.style.top = "-10000px";
-                    el.style.left = "-10000px";
-                    bodyElement.insertBefore(el, bodyElement.firstChild);
-                });
-            } catch (e) {}
-        },
-
-        _detectWebDriverEvents: function() {
-            const webdriverEventTypes = ["driver-evaluate", "webdriver-evaluate", "webdriverCommand", "selenium-evaluate"];
-            webdriverEventTypes.forEach(eventType => {
-                domHelper.addEventListener(documentObj, eventType, function(event) {
-                    if (webdriverEventTypes.indexOf(event.type) > -1) {
-                        recordDetection("wde_webdriver_event", { val: event.type });
+                    this.updateUI();
+                },
+                
+                updateUI: function() {
+                    const resultsElem = document.getElementById('results');
+                    if (this.detections.length === 0) {
+                        resultsElem.innerHTML = '<p class="no-detection">No automation detected.</p>';
+                        return;
                     }
-                });
-            });
-        },
-
-        _instrumentNativeMethodsForStackTrace: function() {
-            const automationPatterns = /at\scallFunction\s\(\<anonymous|usercript\:Scraper|evaluateJavascriptFunction|evaluation_script|\.apply\.navigator|(at fn \(eval at evalFunc)|eval\sat\sevaluate|utilityscript.evaluate|pptr.evaluate/i;
-            let stiDetectionCounter = 0;
-            let stiHasDetectionFired = false;
-            const checkInterval = 300;
-
-            const getCallStackString = (func, limit = 2, maxLength = 1024) => {
-                const callstack = [];
-                try {
-                    for (let i = 0, caller = func.caller; caller && i < limit; i++) {
-                        callstack.push(utilityHelper.hashString(caller.toString()));
-                        callstack.push(caller.toString().substring(0, maxLength));
-                        caller = caller.caller;
-                        i++;
-                    }
-                } catch (e) {}
-                return utilityHelper.serializeObj(callstack);
-            };
-
-            const createInstrumentedHandler = (originalMethod, detectionType, customHandlers = []) => {
-                return function(...args) {
-                    stiDetectionCounter++;
-                    if (stiHasDetectionFired || stiDetectionCounter > 100) {
-                        return originalMethod.apply(this, args);
-                    }
-
-                    let detectionData = {};
-                    try { null[0](); }
-                    catch (error) {
-                        if (!error || !utilityHelper.isString(error.stack)) return originalMethod.apply(this, args);
-                        detectionData.callStack = error.stack || "";
-                    }
-
-                    let returnValue;
-                    try { returnValue = originalMethod.apply(this, args); }
-                    catch (e) { returnValue = e; throw e; }
-
-                    try {
-                        let hasAutomationPattern = automationPatterns.test(detectionData.callStack);
-                        let isHandlerDetected = false;
-                        for (let handler of customHandlers) {
-                            try { isHandlerDetected = handler(detectionData, args); } catch (e) {}
-                            if (isHandlerDetected) break;
+                    
+                    let html = '';
+                    let currentCategory = '';
+                    
+                    for (const detection of this.detections) {
+                        if (detection.category !== currentCategory) {
+                            currentCategory = detection.category;
+                            html += `<div class="category">${currentCategory}</div>`;
                         }
-
-                        if (hasAutomationPattern || isHandlerDetected) {
-                            detectionData.val = args.length > 0 && utilityHelper.isString(args[0]) ? args[0].substring(0,50) : JSON.stringify(args[0]).substring(0,50);
-                            detectionData.callersStack = getCallStackString(arguments.callee);
-                            stiHasDetectionFired = true;
-                            detectionData.extra = detectionData.extra ? `${detectionData.extra} ${detectionType}` : detectionType;
-                            recordDetection("sti_stack_trace_anomaly", detectionData);
-                        }
-                    } catch (e) {}
-                    return returnValue;
-                };
-            };
-
-            const instrumentDOMMethod = (objectName, methodName, detectionType, customHandlers = [], delayCheck = utilityHelper.shouldRunCheck(checkInterval)) => {
-                if (!delayCheck) return;
-                try {
-                    const targetObjectProto = windowObj[objectName] && windowObj[objectName].prototype;
-                    if (targetObjectProto && utilityHelper.isFunction(targetObjectProto[methodName]) && generalUtils.isNativeMethod(targetObjectProto[methodName])) {
-                        const originalMethod = targetObjectProto[methodName];
-                        targetObjectProto[methodName] = createInstrumentedHandler(originalMethod, detectionType, customHandlers);
-                    }
-                } catch (e) {}
-            };
-
-            const instrumentGlobalMethod = (methodName, detectionType, customHandlers = [], delayCheck = utilityHelper.shouldRunCheck(checkInterval)) => {
-                if (!delayCheck) return;
-                try {
-                    const originalMethod = windowObj[methodName];
-                    if (originalMethod && utilityHelper.isFunction(originalMethod) && generalUtils.isNativeMethod(originalMethod)) {
-                        windowObj[methodName] = createInstrumentedHandler(originalMethod, detectionType, customHandlers);
-                    }
-                } catch (e) {}
-            };
-
-            const isTaikoAutomation = (data) => /tryToFindNode/.test(data.callStack) && /pollForNode/.test(data.callStack);
-            const isFirefoxAutomation = (data) => {
-                try {
-                    const locationRegex = new RegExp("@" + locationObj.href.replace(/\?/g, "\\?") + "\\:(\\d+)\\:8[^\\S]$");
-                    const match = data.callStack.match(locationRegex);
-                    if (match && match[1]) {
-                        data.extra = "ff-mar-es";
-                        return true;
-                    }
-                } catch (e) {}
-                return false;
-            };
-
-            instrumentDOMMethod("Document", "evaluate", "eva", [isFirefoxAutomation, isTaikoAutomation]);
-            instrumentDOMMethod("Element", "getAttributeNode", "gan", [isFirefoxAutomation]);
-            instrumentDOMMethod("Element", "getClientRects", "gcr");
-            instrumentDOMMethod("IntersectionObserver", "observe", "ioo");
-            instrumentDOMMethod("Document", "querySelector", "qs", [isTaikoAutomation]);
-            instrumentDOMMethod("XMLSerializer", "serializeToString", "xsts");
-            instrumentDOMMethod("Document", "querySelectorAll", "qsa", [isTaikoAutomation]);
-            instrumentGlobalMethod("scrollBy", "scrb", [isFirefoxAutomation]);
-            instrumentGlobalMethod("scrollTo", "scrt", [isFirefoxAutomation]);
-
-            if (utilityHelper.shouldRunCheck(checkInterval) && windowObj.Promise && windowObj.Reflect && generalUtils.isNativeMethod(windowObj.Reflect.construct) && windowObj.Proxy) {
-                const originalPromise = windowObj.Promise;
-                const proxyHandler = {
-                    construct: function(target, args) {
-                        stiDetectionCounter++;
-                        if (stiHasDetectionFired || stiDetectionCounter > 100) return Reflect.construct(target, args);
                         
-                        let detectionData = {};
-                        try { null[0](); } catch (e) {
-                            if (!e || !utilityHelper.isString(e.stack)) return Reflect.construct(target, args);
-                            detectionData.callStack = e.stack || "";
-                        }
-
-                        try {
-                            let hasAutomationPattern = automationPatterns.test(detectionData.callStack);
-                            let isTaiko = /waitForPredicatePageFunction/.test(detectionData.callStack) && /pollRaf/.test(detectionData.callStack);
-
-                            if (hasAutomationPattern || isTaiko) {
-                                detectionData.extra = detectionData.extra ? `${detectionData.extra} prom` : "prom";
-                                recordDetection("sti_promise_anomaly", detectionData);
-                            }
-                        } catch (e) {}
-                        return Reflect.construct(target, args);
+                        html += `
+                            <div class="detection">
+                                <strong>${detection.name}</strong>
+                                ${detection.details ? ': ' + detection.details : ''}
+                                <div class="timestamp">${new Date(detection.timestamp).toLocaleTimeString()}</div>
+                            </div>
+                        `;
                     }
-                };
-                try {
-                    windowObj.Promise = new Proxy(originalPromise, proxyHandler);
-                } catch(e) {
-                    windowObj.Promise = originalPromise;
-                }
-            }
-
-            if (utilityHelper.shouldRunCheck(checkInterval)) {
-                domHelper.addEventListener(windowObj, "click", function(event) {
-                    if (domHelper.eventIsTrusted(event) === 0) {
-                        let detectionData = {};
-                        try { null[0](); } catch (e) {
-                            if (!e || !utilityHelper.isString(e.stack)) return;
-                            detectionData.callStack = e.stack || "";
-                        }
-                        const hasAutomationPattern = automationPatterns.test(detectionData.callStack);
-                        const isFirefox = isFirefoxAutomation(detectionData);
-                        if (hasAutomationPattern || isFirefox) {
-                            detectionData.callersStack = getCallStackString(arguments.callee);
-                            stiHasDetectionFired = true;
-                            detectionData.extra = detectionData.extra ? `${detectionData.extra} clk` : "clk";
-                            recordDetection("sti_untrusted_click_anomaly", detectionData);
-                        }
-                    }
-                });
-            }
-        },
-
-        _checkEmailFieldInteractions: function() {
-            const emailSelector = 'input[type="email"], input[name="email"], input#email';
-            const emailFields = documentObj.querySelectorAll(emailSelector);
-            utilityHelper.forEachArray(emailFields, (field) => {
-                let hasPasted = false;
-                domHelper.addEventListener(field, "paste", function() {
-                    if (!hasPasted) {
-                        hasPasted = true;
-                        generalUtils.setTimeout(() => {
-                            recordDetection("pem_email_paste", { val_hash: utilityHelper.hashString(field.value) });
-                        }, 0);
-                    }
-                });
-            });
-        },
-
-        _checkViewportResize: function() {
-            const initialViewport = domHelper.getViewportSize();
-            let hasResized = false;
-            const checkSize = () => {
-                if (hasResized) return;
-                const currentViewport = domHelper.getViewportSize();
-                if (currentViewport.w >= initialViewport.w + 100 || currentViewport.h >= initialViewport.h + 100) {
-                    hasResized = true;
-                    recordDetection("fvs_viewport_resize", { val: `${currentViewport.w}x${currentViewport.h}` });
+                    
+                    resultsElem.innerHTML = html;
+                    document.getElementById('status').textContent = `Detection completed. Found ${this.detections.length} indicators of automation.`;
                 }
             };
-            generalUtils.setTimeout(checkSize, 1000);
-        },
-
-        _checkBizSeaSkyShadowDOM: function() {
-            const bizSeaSkySelector = "bizseasky-focus-wrapper";
-            const focusWrapperSelector = ".focus-wrapper-inner";
-
-            const elements = documentObj.getElementsByTagName(bizSeaSkySelector);
-            if (elements && elements[0] && elements[0].shadowRoot) {
-                const checkShadow = () => {
-                    try {
-                        const focusWrapper = elements[0].shadowRoot.querySelector(focusWrapperSelector);
-                        if (focusWrapper && focusWrapper.childNodes.length >= 1) {
-                            recordDetection("bfs_bizseasky_shadow_dom", { val: focusWrapper.childNodes.length });
+            
+            // WebDriver Detections
+            const webDriverChecks = {
+                run: function() {
+                    // Check navigator.webdriver property
+                    if (navigator.webdriver) {
+                        results.add('WebDriver', 'navigator.webdriver is present', 'This property is explicitly set to true by WebDriver implementations');
+                    }
+                    
+                    // Check for WebDriver attributes on HTML elements
+                    const checkAttributes = () => {
+                        const attributesToCheck = ['selenium', 'webdriver', 'driver', 'cd_frame_id_'];
+                        for (const attr of attributesToCheck) {
+                            if (document.documentElement.getAttribute(attr)) {
+                                results.add('WebDriver', `Document has '${attr}' attribute`, 
+                                    `Value: ${document.documentElement.getAttribute(attr)}`);
+                            }
+                            
+                            // Check iframe elements
+                            const iframes = [...document.querySelectorAll('iframe'), ...document.querySelectorAll('frame')];
+                            for (const iframe of iframes) {
+                                if (iframe.getAttribute(attr)) {
+                                    results.add('WebDriver', `iframe has '${attr}' attribute`, 
+                                        `Value: ${iframe.getAttribute(attr)}`);
+                                }
+                            }
                         }
-                    } catch (e) {}
-                };
-                checkShadow();
-            }
-        }
-    };
+                    };
+                    
+                    // Execute check or wait for document to be ready
+                    if (document.readyState === 'complete') {
+                        checkAttributes();
+                    } else {
+                        document.addEventListener('DOMContentLoaded', checkAttributes);
+                    }
+                    
+                    // Check for modified webdriver property
+                    const navigatorDesc = utils.getPropertyDescriptor(Object.getPrototypeOf(navigator), 'webdriver');
+                    if (navigatorDesc && navigatorDesc.get && utils.isMethodNonNative(navigatorDesc.get)) {
+                        results.add('WebDriver', 'navigator.webdriver getter is modified', 
+                            'The getter method for this property has been overridden');
+                    }
+                    
+                    // Check for webdriver-related events
+                    const webdriverEvents = [
+                        'webdriver-evaluate', 'driver-evaluate', 'selenium-evaluate',
+                        'webdriverCommand', 'webdriver-evaluate-response'
+                    ];
+                    
+                    for (const eventType of webdriverEvents) {
+                        const detector = function(e) {
+                            if (e.type === eventType) {
+                                results.add('WebDriver', `WebDriver event detected: ${eventType}`);
+                                document.removeEventListener(eventType, detector);
+                            }
+                        };
+                        document.addEventListener(eventType, detector);
+                    }
+                }
+            };
+            
+            // Automation Framework Detection
+            const automationFrameworkChecks = {
+                run: function() {
+                    // Check for automation globals
+                    const automationGlobals = [
+                        { name: '_phantom', alias: 'PhantomJS' },
+                        { name: 'callPhantom', alias: 'PhantomJS' },
+                        { name: '_selenium', alias: 'Selenium' },
+                        { name: 'callSelenium', alias: 'Selenium' },
+                        { name: '_Selenium_IDE_Recorder', alias: 'Selenium IDE' },
+                        { name: 'domAutomation', alias: 'Chrome domAutomation' },
+                        { name: 'domAutomationController', alias: 'Chrome domAutomation' },
+                        { name: '__nightmare', alias: 'Nightmare.js' },
+                        { name: '__webdriver_script_fn', alias: 'WebDriver' },
+                        { name: '__webdriver_script_function', alias: 'WebDriver' },
+                        { name: '__webdriver_script_func', alias: 'WebDriver' },
+                        { name: '__webdriver_evaluate', alias: 'WebDriver' },
+                        { name: '__selenium_evaluate', alias: 'Selenium' },
+                        { name: '__fxdriver_evaluate', alias: 'Firefox WebDriver' },
+                        { name: '__driver_unwrapped', alias: 'WebDriver' },
+                        { name: '__webdriver_unwrapped', alias: 'WebDriver' },
+                        { name: '__driver_evaluate', alias: 'WebDriver' },
+                        { name: '__selenium_unwrapped', alias: 'Selenium' },
+                        { name: '__fxdriver_unwrapped', alias: 'Firefox WebDriver' },
+                        { name: '__$webdriverAsyncExecutor', alias: 'WebDriver' },
+                        { name: 'fmget_targets', alias: 'Flash Microscope' }, 
+                        { name: 'spawn', alias: 'Node.js environment' },
+                        { name: 'emit', alias: 'Node.js environment' }
+                    ];
+                    
+                    for (const global of automationGlobals) {
+                        if (utils.hasProperty(window, global.name)) {
+                            results.add('Automation Framework', `${global.alias} detected`, 
+                                `Found global property: ${global.name}`);
+                        }
+                    }
+                    
+                    // Check for Chrome Debugger Protocol
+                    if (window.chrome && window.chrome.csi && window.chrome.loadTimes) {
+                        try {
+                            window.webkitStorageInfo.queryUsageAndQuota(); // Will throw in CDP
+                            window.chrome.runtime.sendMessage(); // This should throw without extensions
+                        } catch(e) {
+                            if (e.toString().indexOf("TypeError: Cannot read properties of undefined") === -1) {
+                                // This is expected behavior in automation contexts
+                                results.add('Automation Framework', 'Chrome Debugging Protocol', 
+                                    'Error pattern suggests Chrome is being controlled via CDP');
+                            }
+                        }
+                    }
+                    
+                    // Check for CDP-specific properties
+                    if (window.cdc_adoQpoasnfa76pfcZLmcfl_ || 
+                        utils.hasProperty(document, '$cdc_asdjflasutopfhvcZLmcfl_')) {
+                        results.add('Automation Framework', 'Chrome DevTools Protocol', 
+                            'Found CDP marker properties added by ChromeDriver');
+                    }
+                    
+                    // Check for Puppeteer
+                    const windowProps = Object.getOwnPropertyNames(window).slice(-300);
+                    const cdcProps = windowProps.filter(prop => 
+                        /^cdc_[a-zA-Z0-9]{22}_(Array|Promise|Symbol)$/.test(prop)
+                    );
+                    
+                    if (cdcProps.length) {
+                        results.add('Automation Framework', 'Puppeteer/ChromeDriver', 
+                            `Found suspicious window properties: ${cdcProps.join(', ')}`);
+                    }
+                    
+                    // Check for Playwright
+                    try {
+                        const iframe = document.createElement('iframe');
+                        document.body.appendChild(iframe);
+                        const iframeWindow = iframe.contentWindow;
+                        
+                        const regexMatchPrefix = iframeWindow.RegExp['$&'];
+                        const hasMatchingPrefix = /[a-zA-Z]{3}\_[a-zA-Z]{22}\_(Array|Symbol|Promise)/i.test(regexMatchPrefix);
+                        
+                        if (hasMatchingPrefix) {
+                            results.add('Automation Framework', 'Playwright', 
+                                'Pattern in RegExp behavior indicates Playwright');
+                        }
+                        
+                        document.body.removeChild(iframe);
+                    } catch (e) {
+                        // Iframe testing failed, ignore
+                    }
+                }
+            };
+            
+            // Browser Environment Checks
+            const browserEnvironmentChecks = {
+                run: function() {
+                    // Check for zero/small dimensions (headless)
+                    if (screen.width <= 1 || screen.height <= 1) {
+                        results.add('Browser Environment', 'Zero screen dimensions', 
+                            `Screen size: ${screen.width}x${screen.height}`);
+                    }
+                    
+                    if (screen.availWidth <= 1 || screen.availHeight <= 1) {
+                        results.add('Browser Environment', 'Zero available screen dimensions', 
+                            `Available screen size: ${screen.availWidth}x${screen.availHeight}`);
+                    }
+                    
+                    // Check for suspicious user agent inconsistencies
+                    if (/Chrome/.test(navigator.userAgent) && 
+                        /Google Inc/.test(navigator.vendor) && 
+                        !window.chrome) {
+                        results.add('Browser Environment', 'Chrome user agent without chrome object', 
+                            'This suggests a spoofed user agent');
+                    }
+                    
+                    // Check if browser plugins are inconsistent (common in headless)
+                    const plugins = navigator.plugins;
+                    
+                    // Find plugin by name and filename
+                    const findPluginIndex = function(name, filename) {
+                        for (let i = 0; i < plugins.length; i++) {
+                            const plugin = plugins[i];
+                            if (name && plugin.name === name && filename && plugin.filename === filename) {
+                                return i;
+                            }
+                        }
+                        return -1;
+                    };
 
-    function runAllDetections() {
-        console.log("Starting Bot Detection Script...");
-        
-        coreDetector.init();
-        coreDetector.runChecks();
-        
-        advancedDetector.runChecks();
-        
-        setTimeout(() => {
-            if (detections.length === 0) {
-                statusElement.innerHTML = '<strong style="color: #2e7d32;">No Automation Detected</strong>';
-                resultsElement.innerHTML = '<p class="no-detection">No direct automation framework artifacts were detected by this script.</p>';
-                console.log("No automation detected after all checks completed.");
-            }
-        }, 3000);
-    }
+                    if (plugins.length > 0) {
+                        const pdfViewerIndex = findPluginIndex("Chrome PDF Viewer", "internal-pdf-viewer");
+                        const pdfViewer2Index = findPluginIndex("Chrome PDF Viewer", "mhjfbmdgcfjbbpaeojofohoefgiehjai");
+                        const naclPluginIndex = findPluginIndex("Native Client", "internal-nacl-plugin");
 
-    if (documentObj.readyState === "complete" || documentObj.readyState === "interactive") {
-        runAllDetections();
-    } else {
-        domHelper.addEventListener(documentObj, "DOMContentLoaded", runAllDetections);
-    }
-})();
+                        const hasPdfViewerInconsistency = "Chrome PDF Viewer" in plugins && 
+                                                         !("Chrome PDF Plugin" in plugins) && 
+                                                         pdfViewerIndex !== -1 && 
+                                                         pdfViewer2Index !== -1 && 
+                                                         pdfViewer2Index < pdfViewerIndex && 
+                                                         naclPluginIndex === -1;
+
+                        if (hasPdfViewerInconsistency) {
+                            results.add('Browser Environment', 'Inconsistent Chrome PDF plugins', 
+                                'Plugin arrangement indicates headless environment');
+                        }
+                    }
+                    
+                    // Check if user agent changes between checks
+                    const userAgentValues = [];
+                    for (let i = 0; i < 5; i++) {
+                        const currentUA = navigator.userAgent;
+                        let isDuplicate = false;
+                        
+                        for (let j = 0; j < userAgentValues.length; j++) {
+                            if (userAgentValues[j] === currentUA) {
+                                isDuplicate = true;
+                                break;
+                            }
+                        }
+                        
+                        if (!isDuplicate) {
+                            userAgentValues.push(currentUA);
+                        }
+                    }
+                    
+                    if (userAgentValues.length > 1) {
+                        results.add('Browser Environment', 'Multiple user agent values detected', 
+                            `Found ${userAgentValues.length} different user agent strings`);
+                    }
+                    
+                    // Check if document.elementFromPoint returns null
+                    if (document.elementFromPoint(0, 0) === null) {
+                        results.add('Browser Environment', 'elementFromPoint returns null', 
+                            'This is common in headless browsers');
+                    }
+                }
+            };
+            
+            // Feature Anomaly Checks
+            const featureAnomalyChecks = {
+                run: function() {
+                    // Check for disabled BigInt support
+                    try {
+                        if (typeof BigInt === 'function') {
+                            const testBigInt = eval('typeof 1n === "bigint" && BigInt(1) === 1n && Number(1n) === 1');
+                            if (!testBigInt) {
+                                results.add('Feature Anomalies', 'BigInt disabled', 
+                                    'BigInt is recognized but does not work properly');
+                            }
+                        }
+                    } catch (e) {
+                        results.add('Feature Anomalies', 'BigInt evaluation error', e.message);
+                    }
+                    
+                    // Check for disabled arrow functions
+                    try {
+                        const testArrow = eval("()=>!!1")();
+                        if (!testArrow) {
+                            results.add('Feature Anomalies', 'Arrow functions disabled', 
+                                'Arrow functions are recognized but do not work properly');
+                        }
+                    } catch (e) {
+                        results.add('Feature Anomalies', 'Arrow function evaluation error', e.message);
+                    }
+                    
+                    // Check for invalid MimeType toString
+                    try {
+                        const mimeTypeListString = navigator.mimeTypes && navigator.mimeTypes.toString();
+                        if (mimeTypeListString !== "[object MimeTypeArray]" && 
+                            !/MSMimeTypesCollection/i.test(mimeTypeListString)) {
+                            results.add('Feature Anomalies', 'Invalid MimeType array', 
+                                `toString returns: ${mimeTypeListString}`);
+                        }
+                    } catch (e) {
+                        // Ignore errors
+                    }
+                    
+                    // Check for modified Date methods
+                    const date = new Date();
+                    if (utils.isMethodNonNative(date.getTimezoneOffset)) {
+                        results.add('Feature Anomalies', 'Modified Date.getTimezoneOffset method', 
+                            'This method has been overridden');
+                    }
+                    
+                    // Check for invalid window innerWidth type
+                    const innerWidth = window.innerWidth;
+                    if (typeof innerWidth !== "number") {
+                        results.add('Feature Anomalies', 'Non-numeric window.innerWidth', 
+                            `Type: ${typeof innerWidth}, Value: ${innerWidth}`);
+                    }
+                    
+                    // Check for browser features list inconsistencies
+                    const featureChecks = [
+                        { feature: 'help', object: window },
+                        { feature: 'msLaunchUri', object: navigator },
+                        { feature: 'sidebar', object: window },
+                        { feature: 'ActiveXObject', object: window },
+                        { feature: 'IndexedDB', object: window },
+                        { feature: 'WebSocket', object: window },
+                        { feature: 'VRDisplay', object: window },
+                        { feature: 'BluetoothDevice', object: window }
+                    ];
+                    
+                    let featureInconsistencies = [];
+                    
+                    for (const check of featureChecks) {
+                        try {
+                            const hasFeature = check.feature in check.object;
+                            // Look for anomalies - features missing in Chrome but present, etc.
+                            // This is a simplified check - a real implementation would be more sophisticated
+                            if ((navigator.userAgent.includes('Chrome') && check.feature === 'sidebar' && hasFeature) ||
+                                (navigator.userAgent.includes('Firefox') && check.feature === 'ActiveXObject' && hasFeature)) {
+                                featureInconsistencies.push(check.feature);
+                            }
+                        } catch (e) {
+                            // Ignore errors
+                        }
+                    }
+                    
+                    if (featureInconsistencies.length) {
+                        results.add('Feature Anomalies', 'Browser feature inconsistencies', 
+                            `Inconsistent features: ${featureInconsistencies.join(', ')}`);
+                    }
+                }
+            };
+            
+            // DOM and Event Anomaly Checks
+            const domAnomalyChecks = {
+                run: function() {
+                    // Check for overridden DOM methods
+                    const checkDomMethod = (object, methodName) => {
+                        try {
+                            const method = object.prototype[methodName];
+                            if (method && utils.isMethodNonNative(method)) {
+                                results.add('DOM Anomalies', `Modified ${object.name}.${methodName}`, 
+                                    'This method has been overridden');
+                            }
+                        } catch (e) {
+                            // Ignore errors
+                        }
+                    };
+                    
+                    // Check common DOM methods
+                    checkDomMethod(HTMLElement, 'getBoundingClientRect');
+                    checkDomMethod(HTMLElement, 'getClientRects');
+                    checkDomMethod(Document, 'createElement');
+                    checkDomMethod(Document, 'querySelector');
+                    checkDomMethod(Document, 'querySelectorAll');
+                    checkDomMethod(Document, 'evaluate');
+                    
+                    // Check for iframe contentWindow descriptor modifications
+                    try {
+                        const iframeDescriptor = utils.getPropertyDescriptor(HTMLIFrameElement.prototype, 'contentWindow');
+                        if (iframeDescriptor && iframeDescriptor.get && utils.isMethodNonNative(iframeDescriptor.get)) {
+                            results.add('DOM Anomalies', 'Modified iframe.contentWindow getter', 
+                                'The getter for contentWindow has been overridden');
+                        }
+                    } catch (e) {
+                        // Ignore errors
+                    }
+                    
+                    // Check for document cookie descriptor modifications
+                    try {
+                        const cookieDescriptor = utils.getPropertyDescriptor(Document.prototype, 'cookie');
+                        if (cookieDescriptor && 
+                            ((cookieDescriptor.get && utils.isMethodNonNative(cookieDescriptor.get)) || 
+                             (cookieDescriptor.set && utils.isMethodNonNative(cookieDescriptor.set)))) {
+                            results.add('DOM Anomalies', 'Modified document.cookie accessors', 
+                                'The getter or setter for cookie has been overridden');
+                        }
+                    } catch (e) {
+                        // Ignore errors
+                    }
+                    
+                    // Check for WebGL getParameter method overrides
+                    try {
+                        const canvas = document.createElement('canvas');
+                        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+                        
+                        if (gl && utils.isMethodNonNative(gl.getParameter)) {
+                            results.add('DOM Anomalies', 'Modified WebGL.getParameter method', 
+                                'This method has been overridden, commonly done to prevent fingerprinting');
+                        }
+                    } catch (e) {
+                        // Ignore errors
+                    }
+                    
+                    // Check for Navigator prototype modifications
+                    if (Object.getPrototypeOf(navigator) !== Navigator.prototype) {
+                        results.add('DOM Anomalies', 'Modified Navigator prototype', 
+                            'The prototype chain for Navigator has been altered');
+                    }
+                    
+                    // Check for automated stack trace signatures
+                    try {
+                        // Trigger an error to get stack trace
+                        try { null[0](); } catch (error) {
+                            // Check for automation patterns in stack trace
+                            const stackTrace = error.stack || '';
+                            const automationPatterns = [
+                                'at callFunction (<anonymous',
+                                'at UserScript:Scraper',
+                                'evaluateJavascriptFunction',
+                                'evaluation_script',
+                                'apply.navigator',
+                                'at fn (eval at evalFunc)',
+                                'eval at evaluate',
+                                'utilityscript.evaluate',
+                                'pptr.evaluate'
+                            ];
+                            
+                            for (const pattern of automationPatterns) {
+                                if (utils.stringContains(stackTrace, pattern)) {
+                                    results.add('DOM Anomalies', 'Automation stack trace pattern', 
+                                        `Found pattern: ${pattern}`);
+                                    break;
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        // Ignore errors
+                    }
+                    
+                    // Check for non-trusted clicks and events
+                    const monitorTrust = (event) => {
+                        if (event.isTrusted === false) {
+                            results.add('DOM Anomalies', 'Non-trusted event detected', 
+                                `Event type: ${event.type}`);
+                            document.removeEventListener(event.type, monitorTrust);
+                        }
+                    };
+                    
+                    document.addEventListener('click', monitorTrust);
+                    document.addEventListener('mousemove', monitorTrust);
+                    document.addEventListener('keydown', monitorTrust);
+                }
+            };
+            
+            // VM and Sandbox Detection
+            const vmSandboxChecks = {
+                run: function() {
+                    // Check for VM backdoor
+                    const vmProperty = 'vm';
+                    if (window[vmProperty] && typeof window[vmProperty] === 'object') {
+                        const vmProps = Object.keys(window[vmProperty]).slice(0, 10).join(',');
+                        results.add('VM/Sandbox', 'VM backdoor detected', 
+                            `Found VM properties: ${vmProps}`);
+                    }
+                    
+                    // Check for Chrome DevTools Protocol artifacts
+                    const hasChromeProps = !!window.chrome;
+                    const hasRuntimeProps = hasChromeProps && !!window.chrome.runtime;
+                    
+                    if (hasRuntimeProps && window.chrome.runtime.id) {
+                        results.add('VM/Sandbox', 'Chrome extension environment detected', 
+                            `Extension ID: ${window.chrome.runtime.id}`);
+                    }
+                    
+                    // Check for certain debugging hooks
+                    if (typeof window.__REACT_DEVTOOLS_GLOBAL_HOOK__ !== 'undefined' || 
+                        typeof window.__REDUX_DEVTOOLS_EXTENSION__ !== 'undefined') {
+                        results.add('VM/Sandbox', 'Development tools hooks detected', 
+                            'Found React/Redux devtools hooks');
+                    }
+                    
+                    // Try to detect Node.js environment
+                    if ((typeof process !== 'undefined' && process.versions && process.versions.node) || 
+                        typeof global !== 'undefined' || 
+                        typeof module !== 'undefined' && module.exports) {
+                        results.add('VM/Sandbox', 'Node.js environment detected', 
+                            'Found Node.js runtime indicators');
+                    }
+                    
+                    // Detect Cypress test runner
+                    if (typeof window.Cypress === 'object' && typeof window.Cypress.isCy === 'function') {
+                        results.add('VM/Sandbox', 'Cypress test runner detected', 
+                            'Found Cypress automation framework');
+                    }
+                    
+                    // Detect if localStorage is disabled (common in containers)
+                    try {
+                        const testKey = "_automation_check";
+                        window.localStorage.setItem(testKey, testKey);
+                        window.localStorage.removeItem(testKey);
+                    } catch (e) {
+                        results.add('VM/Sandbox', 'localStorage disabled', 
+                            'localStorage is not available: ' + e.message);
+                    }
+                    
+                    // Check for bound browser APIs (often happens in WebDriver)
+                    const isBoundFunction = (func) => {
+                        return func && func.name && !!func.name.match("bound ");
+                    };
+                    
+                    if (isBoundFunction(navigator.getUserMedia) || isBoundFunction(navigator.getBattery)) {
+                        results.add('VM/Sandbox', 'Bound browser APIs detected', 
+                            'Navigator methods appear to be bound functions');
+                    }
+                }
+            };
+            
+            // Execute all checks
+            const runAllChecks = () => {
+                // Clear the results container
+                document.getElementById('results').innerHTML = '';
+                
+                // Run all detection modules
+                webDriverChecks.run();
+                automationFrameworkChecks.run();
+                browserEnvironmentChecks.run();
+                featureAnomalyChecks.run();
+                domAnomalyChecks.run();
+                vmSandboxChecks.run();
+                
+                // If no detections, show all clear
+                setTimeout(() => {
+                    if (results.detections.length === 0) {
+                        document.getElementById('results').innerHTML = '<p class="no-detection">No automation detected.</p>';
+                        document.getElementById('status').textContent = 'Detection completed. No automation indicators found.';
+                    }
+                }, 1000);
+            };
+            
+            // Run checks when page is loaded
+            if (document.readyState === 'complete') {
+                runAllChecks();
+            } else {
+                window.addEventListener('load', runAllChecks);
+            }
+        })();
     </script>
 </body>
 </html>
