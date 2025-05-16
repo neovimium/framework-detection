@@ -34,7 +34,6 @@
             border: 1px solid #ddd;
             border-radius: 4px;
             background-color: #f9f9f9;
-            min-height: 200px;
             max-height: 500px;
             overflow-y: auto;
         }
@@ -71,30 +70,85 @@
         }
 
         .category {
-            margin-top: 15px;
+            margin-top: 20px;
             font-weight: bold;
             color: #333;
+            padding: 5px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+        }
+        
+        .subcategory {
+            margin-top: 10px;
+            font-weight: bold;
+            color: #555;
+            padding-left: 5px;
+            border-left: 3px solid #2196f3;
+        }
+        
+        .result-item {
+            margin: 8px 0 8px 15px;
+            padding: 5px;
+            background-color: #f8f8f8;
+            border-radius: 4px;
+        }
+        
+        .detection-positive {
+            background-color: #ffebee;
+            border-left: 3px solid #f44336;
+        }
+        
+        .detection-negative {
+            background-color: #e8f5e9;
+            border-left: 3px solid #4caf50;
+        }
+        
+        .expected {
+            font-style: italic;
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 3px;
         }
         
         #status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
             font-weight: bold;
-            color: #555;
-            margin-bottom: 10px;
+            background-color: #fff3cd;
+            border: 1px solid #ffeeba;
+            color: #856404;
         }
         
-        .progress-bar {
-            height: 4px;
-            background-color: #e0e0e0;
-            border-radius: 2px;
-            margin-bottom: 20px;
-            overflow: hidden;
+        .status-complete {
+            background-color: #d4edda !important;
+            border-color: #c3e6cb !important;
+            color: #155724 !important;
         }
         
-        .progress-bar-inner {
-            height: 100%;
-            width: 0%;
-            background-color: #2196f3;
-            transition: width 0.3s ease;
+        #summary {
+            margin-top: 15px;
+            padding: 15px;
+            background-color: #e8eaf6;
+            border-radius: 4px;
+            border: 1px solid #c5cae9;
+        }
+        
+        .summary-bot {
+            background-color: #ffebee !important;
+            border-color: #ffcdd2 !important;
+            animation: pulse 2s infinite;
+        }
+        
+        .summary-clean {
+            background-color: #e8f5e9 !important;
+            border-color: #c8e6c9 !important;
+        }
+        
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(255, 82, 82, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(255, 82, 82, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 82, 82, 0); }
         }
     </style>
 </head>
@@ -102,14 +156,15 @@
     <div class="container">
         <h1>Browser Automation Detection</h1>
         <p>This page runs various detection techniques to identify browser automation frameworks like Selenium, Puppeteer, Playwright, and others.</p>
-        <div id="status">Running detection checks...</div>
-        <div class="progress-bar">
-            <div id="progress" class="progress-bar-inner"></div>
-        </div>
+        <div id="status">Running detection checks... Please interact with the page (move your mouse, click, type) to improve results.</div>
         <div class="info-box">
             <h3>About This Tool</h3>
             <p>This detector is designed to detect <strong>actual automation tools</strong>, not normal browser features. The script has been calibrated to minimize false positives in standard browser environments.</p>
             <p>Some browsers may naturally have properties that resemble automation tools, but these are not included in our detection algorithm.</p>
+        </div>
+        <div id="summary" class="summary-clean">
+            <h2>Detection Summary</h2>
+            <p>Detection in progress... Results will appear here.</p>
         </div>
         <div id="results" class="results">
             <p>Detection results will appear here...</p>
@@ -117,6 +172,11 @@
     </div>
 
     <script>
+    // Initialize results display immediately
+    document.addEventListener('DOMContentLoaded', function() {
+        document.getElementById('results').innerHTML = '<p><strong>Running detection tests...</strong><br>This may take a few seconds. Please interact with the page (move mouse, scroll) to improve detection accuracy.</p>';
+    });
+    
     /**
      * BotDetector - A comprehensive system for detecting bots, automation tools, and fraud
      * This implementation is based on deobfuscated code from a professional anti-bot system
@@ -138,6 +198,9 @@
         
         // Utility functions
         const utils = {
+            /**
+             * Hash string - simplified FNV-like hash function
+             */
             hashString: function(str) {
                 let hash = 2166136261;
                 for (let i = 0; i < str.length; i++) {
@@ -147,11 +210,17 @@
                 return hash >>> 0;
             },
             
+            /**
+             * Check if method is native or has been tampered with
+             */
             isMethodNonNative: function(method) {
                 const methodString = Function.prototype.toString.call(method);
                 return !methodString.includes('[native code]');
             },
             
+            /**
+             * Get the full string representation of a non-native method
+             */
             getNonNativeMethodString: function(method, maxLength = 1024) {
                 try {
                     return Function.prototype.toString.call(method)
@@ -162,6 +231,9 @@
                 }
             },
             
+            /**
+             * Get error stack trace for analysis
+             */
             getStackTrace: function() {
                 try {
                     throw new Error();
@@ -176,6 +248,9 @@
         //===============================================================
         
         const browserEnvironment = {
+            /**
+             * Detect WebGL fingerprinting data
+             */
             detectWebGL: function() {
                 try {
                     const canvas = document.createElement('canvas');
@@ -216,6 +291,9 @@
                 }
             },
             
+            /**
+             * Analyze browser chrome elements like toolbars, menubar, etc.
+             */
             getBrowserChrome: function() {
                 const chromeFeatures = [];
                 const uiElements = ['locationbar', 'menubar', 'personalbar', 'scrollbars', 'statusbar', 'toolbar'];
@@ -241,6 +319,9 @@
                 return detectionResults.browserEnvironment.chrome;
             },
             
+            /**
+             * Check for suspicious screen dimensions
+             */
             detectScreenAnomalies: function() {
                 const screenObj = window.screen;
                 
@@ -270,9 +351,13 @@
         //===============================================================
         
         const jsEnvironment = {
+            /**
+             * Check for native function tampering
+             */
             detectNativeFunctionTampering: function() {
                 const results = {};
                 
+                // Check several commonly tampered functions
                 const functionPairs = [
                     ['Document.prototype.createElement', Document.prototype.createElement],
                     ['HTMLElement.prototype.getBoundingClientRect', HTMLElement.prototype.getBoundingClientRect],
@@ -297,12 +382,17 @@
                 return results;
             },
             
+            /**
+             * Analyze stack traces for patterns indicative of automation
+             */
             analyzeStackTrace: function() {
                 try {
+                    // Generate an artificial error to capture stack trace
                     document.createElement('-');
                 } catch (error) {
                     const stack = error.stack || '';
                     
+                    // Check for suspicious patterns in stack trace
                     const patterns = [
                         'at callFunction', 
                         'userscript', 
@@ -329,10 +419,14 @@
                 }
             },
             
+            /**
+             * Test precision of Math functions to detect emulation
+             */
             getMathPrecisionTest: function() {
                 try {
                     const testPI = Number('3.141592653589793');
                     
+                    // Tests that should match for real browsers, but may fail in emulated environments
                     const checkFirst = eval(testPI + ' ** -100') == +'1.9275814160560204e-50';
                     const checkSecond = eval(testPI + ' ** -100') == +'1.9275814160560185e-50';
                     const checkThird = eval(testPI + ' ** -100') == +'1.9275814160560206e-50';
@@ -356,6 +450,9 @@
         //===============================================================
         
         const botFramework = {
+            /**
+             * Detect automation global variables
+             */
             detectAutomationGlobals: function() {
                 const automationGlobals = [
                     '_phantom',
@@ -395,12 +492,16 @@
                 return detectionResults.botFrameworks.globals;
             },
             
+            /**
+             * Check for Selenium WebDriver properties
+             */
             detectWebdriverProperties: function() {
                 let results = {
                     navigatorHasWebdriver: false,
                     documentHasWebdriverAttributes: false
                 };
                 
+                // Check for webdriver property in navigator
                 try {
                     if ('webdriver' in navigator) {
                         results.navigatorHasWebdriver = true;
@@ -408,6 +509,7 @@
                     }
                 } catch (e) {}
                 
+                // Check for Selenium/WebDriver attributes in DOM
                 try {
                     const docElement = document.documentElement;
                     const seleniumAttr = docElement.getAttribute('selenium');
@@ -427,6 +529,7 @@
                     }
                 } catch (e) {}
                 
+                // Check for hidden webdriver property in navigator
                 try {
                     const navProto = Object.getPrototypeOf(navigator);
                     const webdriverPropDesc = Object.getOwnPropertyDescriptor(navProto, 'webdriver');
@@ -445,16 +548,21 @@
                 return results;
             },
             
+            /**
+             * Detect Chrome extension for automation
+             */
             detectAutomationExtensions: function() {
                 const results = {
                     hasChromeExtension: false,
                     hasPrototypeInRuntimeSendMessage: false
                 };
                 
+                // Check for Chrome extension
                 if (window.chrome && !!window.chrome.extension) {
                     results.hasChromeExtension = true;
                 }
                 
+                // Check for suspicious Chrome runtime properties
                 try {
                     if (window.chrome && window.chrome.runtime && window.chrome.runtime.sendMessage) {
                         results.hasPrototypeInRuntimeSendMessage = !!window.chrome.runtime.sendMessage.prototype;
@@ -471,6 +579,9 @@
         //===============================================================
         
         const browserBehavior = {
+            /**
+             * Set up monitoring for mouse events 
+             */
             initMouseMonitoring: function() {
                 const state = {
                     movements: [],
@@ -500,6 +611,7 @@
                         }
                         state.movements.push(position);
                         
+                        // Keep only the last 20 movements
                         if (state.movements.length > 20) {
                             state.movements.shift();
                         }
@@ -508,6 +620,7 @@
                             state.firstClickTime = timestamp;
                         }
                         
+                        // Try to determine if an element was clicked
                         try {
                             const element = event.target;
                             if (element) {
@@ -517,6 +630,7 @@
                                     className: element.className
                                 };
                                 
+                                // Check for interactive elements
                                 position.isInteractive = 
                                     ['button', 'a', 'input', 'select', 'textarea'].includes(position.element.tagName) ||
                                     typeof element.onclick === 'function';
@@ -525,14 +639,17 @@
                         
                         state.clicks.push(position);
                         
+                        // Keep only the last 10 clicks
                         if (state.clicks.length > 10) {
                             state.clicks.shift();
                         }
                     }
                     
+                    // Update detection results
                     detectionResults.browserBehavior.mouse = state;
                 };
                 
+                // Set up listeners
                 document.addEventListener('mousemove', e => recordMousePosition(e, 'movement'));
                 document.addEventListener('click', e => recordMousePosition(e, 'click'));
                 
@@ -541,6 +658,9 @@
                 };
             },
             
+            /**
+             * Set up keyboard event monitoring
+             */
             initKeyboardMonitoring: function() {
                 const state = {
                     events: [],
@@ -567,10 +687,12 @@
                     state.events.push(keyEvent);
                     state.uniqueKeysPressed.add(event.key);
                     
+                    // Keep only the last 20 events
                     if (state.events.length > 20) {
                         state.events.shift();
                     }
                     
+                    // Update detection results
                     detectionResults.browserBehavior.keyboard = {
                         events: state.events,
                         firstEventTime: state.firstEventTime,
@@ -578,6 +700,7 @@
                     };
                 };
                 
+                // Set up listeners
                 document.addEventListener('keydown', recordKeyEvent);
                 document.addEventListener('keyup', recordKeyEvent);
                 
@@ -586,6 +709,9 @@
                 };
             },
             
+            /**
+             * Monitor tab visibility state changes
+             */
             initVisibilityMonitoring: function() {
                 const state = {
                     changes: [],
@@ -603,15 +729,19 @@
                     
                     state.currentState = visibilityState;
                     
+                    // Keep only the last 10 changes
                     if (state.changes.length > 10) {
                         state.changes.shift();
                     }
                     
+                    // Update detection results
                     detectionResults.browserBehavior.visibility = state;
                 };
                 
+                // Record initial state
                 recordVisibilityChange();
                 
+                // Set up listener
                 document.addEventListener('visibilitychange', recordVisibilityChange);
                 
                 return {
@@ -625,6 +755,9 @@
         //===============================================================
         
         const fingerprinting = {
+            /**
+             * Create canvas fingerprint
+             */
             getCanvasFingerprint: function() {
                 try {
                     const canvas = document.createElement('canvas');
@@ -633,22 +766,27 @@
                     
                     const context = canvas.getContext('2d');
                     
+                    // Draw background
                     context.fillStyle = '#f60';
                     context.fillRect(125, 1, 62, 20);
                     
+                    // Add text
                     context.fillStyle = '#069';
                     context.font = '11pt Arial';
                     context.fillText('Cwm fjordbank glyphs vext quiz, 😃', 2, 15);
                     
+                    // More complex shape
                     context.fillStyle = 'rgba(102, 204, 0, 0.7)';
                     context.font = '18pt Arial';
                     context.fillText('Cwm fjordbank glyphs vext quiz, 😃', 4, 45);
                     
+                    // Get fingerprint
                     const fingerprint = canvas.toDataURL();
                     const hash = utils.hashString(fingerprint);
                     
                     detectionResults.fingerprinting.canvas = {
                         hash: hash,
+                        // Don't include the full fingerprint string as it's very long
                         sampleLength: fingerprint.length
                     };
                     
@@ -658,6 +796,9 @@
                 }
             },
             
+            /**
+             * Create audio context fingerprint
+             */
             getAudioFingerprint: function() {
                 try {
                     const audioContext = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, 5000, 44100);
@@ -666,6 +807,7 @@
                     const oscillator = audioContext.createOscillator();
                     const dynamicsCompressor = audioContext.createDynamicsCompressor();
                     
+                    // Set properties for more stable fingerprinting
                     oscillator.type = 'triangle';
                     oscillator.frequency.value = 10000;
                     
@@ -685,6 +827,7 @@
                     audioContext.oncomplete = function(event) {
                         const samples = event.renderedBuffer.getChannelData(0);
                         
+                        // Sample a subset of data points
                         for (let i = 0; i < 20; i++) {
                             const index = Math.floor(samples.length / 20 * i);
                             audioData.push(samples[index]);
@@ -704,6 +847,9 @@
                 }
             },
             
+            /**
+             * Detect installed fonts
+             */
             getFontDetection: function() {
                 const baseFonts = ['monospace', 'sans-serif', 'serif'];
                 const fontList = [
@@ -724,6 +870,7 @@
                 const defaultWidth = {};
                 const defaultHeight = {};
                 
+                // Get width of text in different base fonts
                 for (let index in baseFonts) {
                     s.style.fontFamily = baseFonts[index];
                     h.appendChild(s);
@@ -734,6 +881,7 @@
                 
                 const detected = [];
                 
+                // Detect installed fonts
                 for (let i = 0; i < fontList.length; i++) {
                     let isDetected = false;
                     
@@ -772,6 +920,9 @@
         //===============================================================
         
         const hardware = {
+            /**
+             * Enumerate audio/video devices
+             */
             getMediaDevices: function() {
                 return new Promise((resolve) => {
                     if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
@@ -822,12 +973,16 @@
                 });
             },
             
+            /**
+             * Get CPU cores and device memory
+             */
             getCPUAndMemoryInfo: function() {
                 const results = {
                     hardwareConcurrency: navigator.hardwareConcurrency,
                     deviceMemory: navigator.deviceMemory
                 };
                 
+                // Check for suspicious values
                 results.suspiciousHardwareConcurrency = 
                     navigator.hardwareConcurrency === undefined || 
                     navigator.hardwareConcurrency <= 1;
@@ -840,22 +995,28 @@
                 return results;
             },
             
+            /**
+             * Check for VM backdoors
+             */
             detectVMEnvironment: function() {
                 const results = {
                     isVM: false,
                     indicators: []
                 };
                 
+                // Check for VMWare
                 if (window.vmware && typeof window.vmware === 'object') {
                     results.isVM = true;
                     results.indicators.push('vmware object present');
                 }
                 
+                // Check for VirtualBox
                 if (window.VirtualBox && typeof window.VirtualBox === 'object') {
                     results.isVM = true;
                     results.indicators.push('VirtualBox object present');
                 }
                 
+                // Check for other VM properties
                 const vmProps = ['vboxrt', 'vboxdtcc'];
                 for (const prop of vmProps) {
                     if (window[prop] !== undefined) {
@@ -874,17 +1035,22 @@
         //===============================================================
         
         const apiManipulation = {
+            /**
+             * Check for modified navigator properties
+             */
             detectNavigatorManipulation: function() {
                 const results = {
                     modified: false,
                     modifiedProperties: []
                 };
                 
+                // Properties commonly tampered with
                 const propsToCheck = [
                     'userAgent', 'platform', 'vendor', 'appVersion',
                     'language', 'languages', 'plugins', 'mimeTypes'
                 ];
                 
+                // Check each property
                 for (const prop of propsToCheck) {
                     try {
                         const descriptor = Object.getOwnPropertyDescriptor(Navigator.prototype, prop);
@@ -903,6 +1069,9 @@
                 return results;
             },
             
+            /**
+             * Check for permission API manipulation
+             */
             detectPermissionsAPIManipulation: function() {
                 const results = {
                     modified: false
@@ -927,6 +1096,9 @@
                 return results;
             },
             
+            /**
+             * Check for iframe contentWindow manipulation
+             */
             detectContentWindowManipulation: function() {
                 const results = {
                     modified: false
@@ -936,6 +1108,7 @@
                     const iframe = document.createElement('iframe');
                     const iframeProto = Object.getPrototypeOf(iframe);
                     
+                    // Get descriptor for contentWindow
                     const descriptor = Object.getOwnPropertyDescriptor(iframeProto, 'contentWindow');
                     
                     if (descriptor && descriptor.get) {
@@ -953,6 +1126,9 @@
                 return results;
             },
             
+            /**
+             * Detect timezone manipulation
+             */
             detectTimezoneManipulation: function() {
                 const results = {
                     modified: false
@@ -966,6 +1142,7 @@
                         results.methodBody = utils.getNonNativeMethodString(date.getTimezoneOffset, 100);
                     }
                     
+                    // Gather additional timezone info
                     const timezoneOffset = date.getTimezoneOffset() / 60;
                     
                     let intl;
@@ -983,7 +1160,10 @@
                         };
                     }
                     
+                    // Check for inconsistencies
                     if (intl && intl.timeZone) {
+                        // Time zones should roughly match offset
+                        // This is a simplistic check - real implementation would be more sophisticated
                         const tzParts = intl.timeZone.split('/');
                         const tzName = tzParts[tzParts.length - 1].toLowerCase();
                         
@@ -1022,6 +1202,9 @@
         //===============================================================
         
         const deception = {
+            /**
+             * Create bait elements to detect hidden bot interaction
+             */
             createHiddenBaitElements: function() {
                 const results = {
                     created: false,
@@ -1029,6 +1212,7 @@
                 };
                 
                 try {
+                    // Create hidden elements
                     const hiddenDiv = document.createElement('div');
                     hiddenDiv.style.cssText = 'opacity:0.01 !important; position:absolute !important; z-index:-990 !important; width:54px !important; height:22px !important;';
                     
@@ -1040,6 +1224,7 @@
                     hiddenLink.setAttribute('rel', 'nofollow');
                     hiddenLink.style.cssText = 'opacity:0.01 !important; position:absolute !important; z-index:-991 !important; width:54px !important; height:22px !important;';
                     
+                    // Add event listeners to detect interaction
                     const interactionHandler = function(event) {
                         event.preventDefault();
                         event.stopPropagation();
@@ -1059,14 +1244,17 @@
                     hiddenLink.addEventListener('click', interactionHandler);
                     hiddenLink.addEventListener('mouseover', interactionHandler);
                     
+                    // Add random IDs
                     hiddenDiv.id = 'hb_' + Math.random().toString(36).substring(2, 8);
                     hiddenLink.id = 'hl_' + Math.random().toString(36).substring(2, 8);
                     
+                    // Add to document
                     if (document.body) {
                         document.body.appendChild(hiddenDiv);
                         document.body.appendChild(hiddenLink);
                         results.created = true;
                     } else {
+                        // Wait for body to be available
                         document.addEventListener('DOMContentLoaded', function() {
                             document.body.appendChild(hiddenDiv);
                             document.body.appendChild(hiddenLink);
@@ -1083,6 +1271,9 @@
                 return results;
             },
             
+            /**
+             * Check if events are trusted
+             */
             analyzeEventTrust: function() {
                 const state = {
                     events: [],
@@ -1103,6 +1294,7 @@
                         state.untrustedDetected = true;
                     }
                     
+                    // Keep only the last 20 events
                     if (state.events.length > 20) {
                         state.events.shift();
                     }
@@ -1110,11 +1302,13 @@
                     detectionResults.deception.eventTrust = state;
                 };
                 
+                // Events to monitor
                 const eventsToMonitor = [
                     'click', 'mousedown', 'mouseup', 'mousemove',
                     'keydown', 'keyup', 'touchstart', 'touchend'
                 ];
                 
+                // Set up listeners
                 for (const eventType of eventsToMonitor) {
                     document.addEventListener(eventType, recordEvent, true);
                 }
@@ -1140,6 +1334,9 @@
         deception.analyzeEventTrust();
         
         return {
+            /**
+             * Run all detection methods and return a comprehensive report
+             */
             runDetection: function() {
                 // Browser Environment checks
                 browserEnvironment.detectWebGL();
@@ -1175,10 +1372,16 @@
                 return detectionResults;
             },
             
+            /**
+             * Get specific detection results
+             */
             getResults: function() {
                 return detectionResults;
             },
             
+            /**
+             * Check if there are strong indicators of bot/automation
+             */
             isLikelyBot: function() {
                 this.runDetection();
                 
@@ -1257,237 +1460,301 @@
                     botScore: botIndicators.length,
                     indicators: botIndicators
                 };
-            }
+            },
+            
+            /**
+             * Utility methods
+             */
+            utils: utils
         };
     })();
 
-    // UI Helper Functions
-    function updateProgressBar(percent) {
-        const progressBar = document.getElementById('progress');
-        progressBar.style.width = percent + '%';
-    }
-
-    function updateStatus(message) {
-        const statusElement = document.getElementById('status');
-        statusElement.textContent = message;
-    }
-
-    function addDetection(message, details) {
-        const resultsElement = document.getElementById('results');
+    // Display results in a readable format
+    function displayResults(results) {
+        const resultsDiv = document.getElementById('results');
+        const summaryDiv = document.getElementById('summary');
+        const statusDiv = document.getElementById('status');
         
-        if (resultsElement.querySelector('p')) {
-            resultsElement.innerHTML = '';
+        // Update status
+        statusDiv.innerHTML = 'Detection completed. Results are displayed below.';
+        statusDiv.className = 'status-complete';
+        
+        // Create summary
+        const botCheck = BotDetector.isLikelyBot();
+        
+        const summaryHTML = `
+            <h2>Detection Summary</h2>
+            <div style="padding: 10px; margin-bottom: 15px; border-radius: 4px; background-color: ${botCheck.isBot ? '#ffebee' : '#e8f5e9'}; 
+                          border: 1px solid ${botCheck.isBot ? '#ffcdd2' : '#c8e6c9'};">
+                <strong style="font-size: 1.2em;">Result: ${botCheck.isBot ? '🚨 AUTOMATION DETECTED 🚨' : '✅ NO AUTOMATION DETECTED'}</strong>
+                <br>Bot Score: ${botCheck.botScore} / 11 possible indicators
+                ${botCheck.indicators.length > 0 ? 
+                    `<br><br><strong>Detected:</strong><br>${botCheck.indicators.map(i => `• ${i}`).join('<br>')}` : 
+                    ''
+                }
+            </div>
+        `;
+        
+        summaryDiv.innerHTML = summaryHTML;
+        summaryDiv.className = botCheck.isBot ? 'summary-bot' : 'summary-clean';
+        
+        // Browser Environment
+        appendCategory(resultsDiv, '1. Browser Environment', 'Environment properties that indicate automation');
+        
+        appendSubcategory(resultsDiv, 'WebGL', 'WebGL rendering engine details');
+        appendResult(resultsDiv, 'WebGL Vendor', results.browserEnvironment.webGL?.vendor, 
+            'Real browsers show actual GPU vendor (Intel, NVIDIA, AMD). Headless/Automated browsers may show generic values or be blank.');
+            
+        appendResult(resultsDiv, 'WebGL Renderer', results.browserEnvironment.webGL?.renderer, 
+            'Real browsers show actual GPU model. Headless/Automated browsers may show "Mesa", "SwiftShader", or generic values.');
+            
+        appendSubcategory(resultsDiv, 'Browser Chrome Elements', 'UI components like toolbars, status bar');
+        appendResult(resultsDiv, 'Non-Standard Chrome', results.browserEnvironment.chrome?.nonStandard ? 'Yes' : 'No', 
+            'Real browsers typically have standard UI elements visible. Headless browsers often have these disabled.');
+            
+        appendSubcategory(resultsDiv, 'Screen Properties', 'Display characteristics');
+        appendResult(resultsDiv, 'Screen Size', 
+            `${results.browserEnvironment.screen?.width}x${results.browserEnvironment.screen?.height}`, 
+            'Automated browsers may have unusual dimensions (like 0 or very small values).');
+            
+        appendResult(resultsDiv, 'Color Depth', results.browserEnvironment.screen?.colorDepth, 
+            'Real browsers typically have 24 or 32 bit color depth. Bots may have low values like 8 or 0.');
+            
+        appendResult(resultsDiv, 'Zero/Small Screen', 
+            results.browserEnvironment.screen?.zeroSize || 
+            results.browserEnvironment.screen?.zeroAvailableSize || 
+            results.browserEnvironment.screen?.smallColorDepth ? 'Yes (Suspicious)' : 'No', 
+            'Headless browsers often have zero or very small dimensions, indicating automation.');
+        
+        // JavaScript Environment
+        appendCategory(resultsDiv, '2. JavaScript Environment', 'JavaScript execution analysis');
+        
+        appendSubcategory(resultsDiv, 'Native Function Tampering', 'Modified browser functions');
+        
+        const tamperedFunctions = results.jsEnvironment.nativeFunctionTampering ? 
+            Object.keys(results.jsEnvironment.nativeFunctionTampering)
+                .filter(key => results.jsEnvironment.nativeFunctionTampering[key].isModified) : [];
+                
+        appendResult(resultsDiv, 'Modified Functions', 
+            tamperedFunctions.length > 0 ? tamperedFunctions.join(', ') : 'None', 
+            'Real browsers have native functions. Automation tools often modify these to hide their presence.');
+            
+        appendSubcategory(resultsDiv, 'Stack Trace Analysis', 'JavaScript error stack inspection');
+        appendResult(resultsDiv, 'Suspicious Patterns', 
+            results.jsEnvironment.stackTrace?.suspicious ? 'Yes' : 'No', 
+            'Real browsers have standard stack traces. Automation frameworks may leave traces in error stacks.');
+            
+        if (results.jsEnvironment.stackTrace?.detectedPatterns?.length > 0) {
+            appendResult(resultsDiv, 'Stack Patterns Found', 
+                results.jsEnvironment.stackTrace.detectedPatterns.join(', '), 
+                'Patterns like "evaluate", "callFunction", "userscript" indicate automation frameworks.');
         }
         
-        const detectionElement = document.createElement('div');
-        detectionElement.className = 'detection';
+        appendSubcategory(resultsDiv, 'Math Precision', 'Floating point calculation accuracy');
+        appendResult(resultsDiv, 'Consistent Math', 
+            results.jsEnvironment.mathPrecision?.result, 
+            'Real browsers have consistent Math precision. VMs or emulated environments may have inconsistencies.');
         
-        const messageElement = document.createElement('div');
-        messageElement.textContent = message;
-        detectionElement.appendChild(messageElement);
+        // Bot Framework Detection
+        appendCategory(resultsDiv, '3. Bot Framework Detection', 'Direct indicators of automation frameworks');
         
-        if (details) {
-            const detailsElement = document.createElement('div');
-            detailsElement.style.fontSize = '0.9em';
-            detailsElement.style.marginTop = '5px';
-            detailsElement.style.color = '#555';
-            detailsElement.textContent = details;
-            detectionElement.appendChild(detailsElement);
+        appendSubcategory(resultsDiv, 'Automation Global Variables', 'Framework-specific global variables');
+        appendResult(resultsDiv, 'Detected Globals', 
+            results.botFrameworks.globals?.detected ? 
+                results.botFrameworks.globals.detectedGlobals.join(', ') : 'None', 
+            'Real browsers should have none. Variables like "_selenium", "callPhantom", etc. indicate automation tools.');
+            
+        appendSubcategory(resultsDiv, 'WebDriver Properties', 'Selenium/WebDriver indicators');
+        appendResult(resultsDiv, 'Navigator WebDriver', 
+            results.botFrameworks.webdriver?.navigatorHasWebdriver ? 
+                `Present: ${results.botFrameworks.webdriver.webdriverValue}` : 'Not Present', 
+            'Real browsers should not have navigator.webdriver=true. This is a direct sign of WebDriver/Selenium.');
+            
+        appendResult(resultsDiv, 'DOM WebDriver Attributes', 
+            results.botFrameworks.webdriver?.documentHasWebdriverAttributes ? 'Present' : 'Not Present', 
+            'Real browsers should not have "selenium", "webdriver", or "driver" attributes on HTML elements.');
+            
+        appendSubcategory(resultsDiv, 'Chrome Extension Patterns', 'Automation extension indicators');
+        appendResult(resultsDiv, 'Chrome Extension Properties', 
+            results.botFrameworks.extensions?.hasChromeExtension ? 'Present' : 'Not Present', 
+            'Some automation frameworks use Chrome extensions which add unique properties.');
+        
+        // Browser Behavior
+        appendCategory(resultsDiv, '4. Browser Behavior', 'User interaction patterns');
+        
+        appendSubcategory(resultsDiv, 'Mouse Movement', 'Mouse tracking analysis');
+        appendResult(resultsDiv, 'Mouse Movements', 
+            results.browserBehavior.mouse?.movements?.length || 0, 
+            'Real users generate many natural mouse movements. Bots may have none or very straight/unnatural patterns.');
+            
+        appendResult(resultsDiv, 'Mouse Clicks', 
+            results.browserBehavior.mouse?.clicks?.length || 0, 
+            'Real users click naturally. Bots may have perfectly precise clicks or clicks before movements.');
+            
+        appendSubcategory(resultsDiv, 'Keyboard Activity', 'Keyboard event patterns');
+        appendResult(resultsDiv, 'Keyboard Events', 
+            results.browserBehavior.keyboard?.events?.length || 0, 
+            'Real users generate keyboard events naturally. Bots may have none or unusual patterns/timing.');
+            
+        appendSubcategory(resultsDiv, 'Tab Visibility', 'Browser tab focus states');
+        appendResult(resultsDiv, 'Visibility State', 
+            results.browserBehavior.visibility?.currentState, 
+            'Real users typically have "visible" state. Headless browsers may show "hidden".');
+        
+        // Fingerprinting
+        appendCategory(resultsDiv, '5. Advanced Fingerprinting', 'Unique browser identification methods');
+        
+        appendSubcategory(resultsDiv, 'Canvas Fingerprinting', 'Graphics rendering uniqueness');
+        appendResult(resultsDiv, 'Canvas Hash', 
+            results.fingerprinting.canvas?.hash, 
+            'Each browser has a unique canvas fingerprint. Bots often have identical or missing fingerprints.');
+            
+        appendSubcategory(resultsDiv, 'Audio Fingerprinting', 'Audio processing uniqueness');
+        appendResult(resultsDiv, 'Audio API', 
+            results.fingerprinting.audio?.hash || 'Processing...', 
+            'Real browsers have unique audio processing. Headless environments may have consistent or missing values.');
+            
+        appendSubcategory(resultsDiv, 'Font Detection', 'System fonts available');
+        appendResult(resultsDiv, 'Detected Fonts Count', 
+            results.fingerprinting.fonts?.detectedCount || 0, 
+            'Real browsers have many system fonts available. Headless environments often have few or standard set only.');
+        
+        // Hardware Detection
+        appendCategory(resultsDiv, '6. Hardware & Device Detection', 'Physical device characteristics');
+        
+        appendSubcategory(resultsDiv, 'CPU & Memory', 'System resources');
+        appendResult(resultsDiv, 'CPU Cores', 
+            results.hardware.cpuMemory?.hardwareConcurrency, 
+            'Real browsers typically report actual CPU cores. Bots may report 1 or modified values.');
+            
+        appendResult(resultsDiv, 'Device Memory', 
+            results.hardware.cpuMemory?.deviceMemory ? `${results.hardware.cpuMemory.deviceMemory}GB` : 'Not reported', 
+            'Real browsers typically report actual memory. Bots may report very low values.');
+            
+        appendSubcategory(resultsDiv, 'Media Devices', 'Audio/Video hardware');
+        
+        let mediaDeviceText = 'Loading...';
+        if (results.hardware.mediaDevices) {
+            if (!results.hardware.mediaDevices.available) {
+                mediaDeviceText = 'API Not Available';
+            } else if (results.hardware.mediaDevices.error) {
+                mediaDeviceText = `Error: ${results.hardware.mediaDevices.error}`;
+            } else if (results.hardware.mediaDevices.counts) {
+                mediaDeviceText = `Audio In: ${results.hardware.mediaDevices.counts.audioInput}, ` +
+                                 `Audio Out: ${results.hardware.mediaDevices.counts.audioOutput}, ` +
+                                 `Video: ${results.hardware.mediaDevices.counts.videoInput}`;
+            }
         }
         
-        const timestampElement = document.createElement('div');
-        timestampElement.className = 'timestamp';
+        appendResult(resultsDiv, 'Available Devices', 
+            mediaDeviceText, 
+            'Real browsers typically have some media devices. Headless environments often have none.');
+            
+        appendSubcategory(resultsDiv, 'VM Detection', 'Virtual Machine indicators');
+        appendResult(resultsDiv, 'VM Environment', 
+            results.hardware.vm?.isVM ? `Yes (${results.hardware.vm.indicators.join(', ')})` : 'No', 
+            'Real users rarely use VMs with visible VM objects. Bots often run in detectable virtual environments.');
         
-        const now = new Date();
-        const timeString = now.toLocaleTimeString();
-        timestampElement.textContent = timeString;
+        // API Manipulation
+        appendCategory(resultsDiv, '7. API Manipulation', 'Browser API tampering detection');
         
-        detectionElement.appendChild(timestampElement);
-        resultsElement.appendChild(detectionElement);
+        appendSubcategory(resultsDiv, 'Navigator Properties', 'Browser identity properties');
+        
+        const modifiedNavProps = results.apiManipulation.navigator?.modifiedProperties || [];
+        appendResult(resultsDiv, 'Modified Navigator', 
+            results.apiManipulation.navigator?.modified ? 
+                `Yes (${modifiedNavProps.map(p => p.property).join(', ')})` : 'No', 
+            'Real browsers have standard navigator properties. Bots often modify these to mask their identity.');
+            
+        appendSubcategory(resultsDiv, 'Permissions API', 'Browser permissions system');
+        appendResult(resultsDiv, 'Modified Permissions', 
+            results.apiManipulation.permissions?.modified ? 'Yes' : 'No', 
+            'Real browsers have standard permissions API. Bots may modify this to avoid permission prompts.');
+            
+        appendSubcategory(resultsDiv, 'IFrame Content Window', 'IFrame security boundaries');
+        appendResult(resultsDiv, 'Modified ContentWindow', 
+            results.apiManipulation.contentWindow?.modified ? 'Yes' : 'No', 
+            'Real browsers respect iframe boundaries. Bots may modify these to gain cross-origin access.');
+            
+        appendSubcategory(resultsDiv, 'Timezone Consistency', 'Geographic time settings');
+        appendResult(resultsDiv, 'Timezone Data', 
+            `${results.apiManipulation.timezone?.intl?.timeZone || 'Unknown'} (UTC${results.apiManipulation.timezone?.timezoneOffset > 0 ? '-' : '+'}${Math.abs(results.apiManipulation.timezone?.timezoneOffset || 0)})`, 
+            'Real browsers have consistent timezone between methods. Bots may have inconsistent timezone values.');
+            
+        appendResult(resultsDiv, 'Timezone Modified', 
+            results.apiManipulation.timezone?.modified ? 'Yes' : 'No', 
+            'Real browsers have native timezone functions. Bots often modify these to fake location.');
+        
+        // Deception Detection
+        appendCategory(resultsDiv, '8. Deception Detection', 'Honesty/inconsistency checks');
+        
+        appendSubcategory(resultsDiv, 'Bait Elements', 'Hidden element interaction');
+        appendResult(resultsDiv, 'Bait Interactions', 
+            results.deception.baitElements?.interactions.length > 0 ? 
+                `Yes (${results.deception.baitElements.interactions.length})` : 'None', 
+            'Real users never interact with invisible elements. Bots sometimes examine all page elements.');
+            
+        appendSubcategory(resultsDiv, 'Event Trust', 'Event authenticity');
+        appendResult(resultsDiv, 'Untrusted Events', 
+            results.deception.eventTrust?.untrustedDetected ? 'Yes' : 'No', 
+            'Real user events are trusted by browsers. Programmatically generated events are marked untrusted.');
     }
-
-    function addCategory(name) {
-        const resultsElement = document.getElementById('results');
-        
-        const categoryElement = document.createElement('div');
-        categoryElement.className = 'category';
-        categoryElement.textContent = name;
-        
-        resultsElement.appendChild(categoryElement);
+    
+    // Helper functions for display
+    function appendCategory(parent, title, description) {
+        const categoryDiv = document.createElement('div');
+        categoryDiv.className = 'category';
+        categoryDiv.innerHTML = `<strong>${title}</strong> - ${description}`;
+        parent.appendChild(categoryDiv);
     }
-
-    function displayNoBotMessage() {
-        const resultsElement = document.getElementById('results');
-        
-        const noBotElement = document.createElement('div');
-        noBotElement.className = 'no-detection';
-        noBotElement.textContent = 'No automation tools detected. Your browser appears to be normal.';
-        
-        resultsElement.appendChild(noBotElement);
+    
+    function appendSubcategory(parent, title, description) {
+        const subcategoryDiv = document.createElement('div');
+        subcategoryDiv.className = 'subcategory';
+        subcategoryDiv.innerHTML = `${title} <span style="font-weight: normal; font-style: italic; font-size: 0.9em;">(${description})</span>`;
+        parent.appendChild(subcategoryDiv);
     }
-
-    // Run detection in stages to show progressive results
+    
+    function appendResult(parent, name, value, expected) {
+        const resultDiv = document.createElement('div');
+        resultDiv.className = 'result-item';
+        
+        let valueDisplay = value;
+        // For arrays or complex values
+        if (typeof value === 'object' && value !== null) {
+            try {
+                valueDisplay = JSON.stringify(value);
+            } catch (e) {
+                valueDisplay = String(value);
+            }
+        }
+        
+        // For undefined or null
+        if (value === undefined) {
+            valueDisplay = 'undefined';
+        } else if (value === null) {
+            valueDisplay = 'null';
+        }
+        
+        resultDiv.innerHTML = `
+            <strong>${name}:</strong> ${valueDisplay}
+            <div class="expected">Expected: ${expected}</div>
+        `;
+        parent.appendChild(resultDiv);
+    }
+    
+    // Run detection when DOM is loaded
     document.addEventListener('DOMContentLoaded', function() {
-        let detectionComplete = false;
+        // Run detection immediately
+        const results = BotDetector.runDetection();
         
-        // Stage 1: Initial checks
-        setTimeout(function() {
-            updateStatus('Checking browser environment...');
-            updateProgressBar(20);
-            
-            // Detect screen anomalies
-            const screenResults = BotDetector.isLikelyBot();
-            if (screenResults.isBot) {
-                addCategory('Automation Detection');
-                
-                screenResults.indicators.forEach(function(indicator) {
-                    addDetection(indicator);
-                });
-            }
-        }, 500);
+        // Display the results
+        displayResults(results);
         
-        // Stage 2: Framework detection
-        setTimeout(function() {
-            updateStatus('Checking for automation frameworks...');
-            updateProgressBar(40);
-            
-            const botResults = BotDetector.getResults();
-            
-            // Check webdriver
-            if (botResults.botFrameworks && botResults.botFrameworks.webdriver && 
-                (botResults.botFrameworks.webdriver.navigatorHasWebdriver || 
-                botResults.botFrameworks.webdriver.documentHasWebdriverAttributes)) {
-                
-                addCategory('WebDriver Detection');
-                
-                if (botResults.botFrameworks.webdriver.navigatorHasWebdriver) {
-                    addDetection('WebDriver property detected in navigator', 
-                        'The navigator.webdriver property is ' + botResults.botFrameworks.webdriver.webdriverValue);
-                }
-                
-                if (botResults.botFrameworks.webdriver.documentHasWebdriverAttributes) {
-                    let attrs = [];
-                    for (let attr in botResults.botFrameworks.webdriver.attributes) {
-                        if (botResults.botFrameworks.webdriver.attributes[attr]) {
-                            attrs.push(attr);
-                        }
-                    }
-                    addDetection('WebDriver attributes found in document', 
-                        'Attributes: ' + attrs.join(', '));
-                }
-            }
-            
-            // Check for automation globals
-            if (botResults.botFrameworks && botResults.botFrameworks.globals && 
-                botResults.botFrameworks.globals.detected) {
-                
-                addCategory('Automation Globals');
-                
-                addDetection('Automation global variables detected', 
-                    'Detected: ' + botResults.botFrameworks.globals.detectedGlobals.join(', '));
-            }
-        }, 1000);
-        
-        // Stage 3: JavaScript environment
-        setTimeout(function() {
-            updateStatus('Analyzing JavaScript environment...');
-            updateProgressBar(60);
-            
-            const botResults = BotDetector.getResults();
-            
-            // Check for tampered functions
-            if (botResults.jsEnvironment && botResults.jsEnvironment.nativeFunctionTampering) {
-                const tamperedFunctions = Object.keys(botResults.jsEnvironment.nativeFunctionTampering)
-                    .filter(key => botResults.jsEnvironment.nativeFunctionTampering[key].isModified);
-                
-                if (tamperedFunctions.length > 0) {
-                    addCategory('Native Function Tampering');
-                    
-                    tamperedFunctions.forEach(function(funcName) {
-                        addDetection('Modified native function: ' + funcName);
-                    });
-                }
-            }
-            
-            // Check stack trace
-            if (botResults.jsEnvironment && botResults.jsEnvironment.stackTrace && 
-                botResults.jsEnvironment.stackTrace.suspicious) {
-                
-                addCategory('Suspicious Stack Trace');
-                
-                addDetection('Suspicious patterns in stack trace', 
-                    'Patterns: ' + botResults.jsEnvironment.stackTrace.detectedPatterns.join(', '));
-            }
-        }, 1500);
-        
-        // Stage 4: API manipulation
-        setTimeout(function() {
-            updateStatus('Checking for API manipulations...');
-            updateProgressBar(80);
-            
-            const botResults = BotDetector.getResults();
-            
-            // Check for navigator manipulation
-            if (botResults.apiManipulation && botResults.apiManipulation.navigator && 
-                botResults.apiManipulation.navigator.modified) {
-                
-                addCategory('API Manipulation');
-                
-                const modifiedProps = botResults.apiManipulation.navigator.modifiedProperties
-                    .map(item => item.property);
-                
-                addDetection('Navigator properties have been modified', 
-                    'Modified: ' + modifiedProps.join(', '));
-            }
-            
-            // Check for permissions API manipulation
-            if (botResults.apiManipulation && botResults.apiManipulation.permissions && 
-                botResults.apiManipulation.permissions.modified) {
-                
-                if (!document.querySelector('.category:last-child').textContent.includes('API Manipulation')) {
-                    addCategory('API Manipulation');
-                }
-                
-                addDetection('Permissions API has been modified');
-            }
-            
-            // Check for timezone manipulation
-            if (botResults.apiManipulation && botResults.apiManipulation.timezone && 
-                botResults.apiManipulation.timezone.modified) {
-                
-                if (!document.querySelector('.category:last-child').textContent.includes('API Manipulation')) {
-                    addCategory('API Manipulation');
-                }
-                
-                addDetection('Timezone API has been modified');
-            }
+        // Set up periodic updates for behavioral detection
+        setInterval(function() {
+            displayResults(BotDetector.getResults());
         }, 2000);
-        
-        // Final stage: Complete detection
-        setTimeout(function() {
-            updateStatus('Detection complete!');
-            updateProgressBar(100);
-            
-            // Get final results
-            const finalResults = BotDetector.isLikelyBot();
-            
-            if (!finalResults.isBot && !detectionComplete) {
-                // No detections
-                displayNoBotMessage();
-            } else if (finalResults.isBot) {
-                // Show bot score
-                const resultsElement = document.getElementById('results');
-                
-                const scoreElement = document.createElement('div');
-                scoreElement.style.marginTop = '20px';
-                scoreElement.style.fontWeight = 'bold';
-                scoreElement.textContent = 'Bot Score: ' + finalResults.botScore + ' / 10';
-                
-                resultsElement.appendChild(scoreElement);
-            }
-            
-            detectionComplete = true;
-        }, 2500);
     });
     </script>
 </body>
