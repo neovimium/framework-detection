@@ -75,6 +75,27 @@
             font-weight: bold;
             color: #333;
         }
+        
+        #status {
+            font-weight: bold;
+            color: #555;
+            margin-bottom: 10px;
+        }
+        
+        .progress-bar {
+            height: 4px;
+            background-color: #e0e0e0;
+            border-radius: 2px;
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+        
+        .progress-bar-inner {
+            height: 100%;
+            width: 0%;
+            background-color: #2196f3;
+            transition: width 0.3s ease;
+        }
     </style>
 </head>
 <body>
@@ -82,6 +103,9 @@
         <h1>Browser Automation Detection</h1>
         <p>This page runs various detection techniques to identify browser automation frameworks like Selenium, Puppeteer, Playwright, and others.</p>
         <div id="status">Running detection checks...</div>
+        <div class="progress-bar">
+            <div id="progress" class="progress-bar-inner"></div>
+        </div>
         <div class="info-box">
             <h3>About This Tool</h3>
             <p>This detector is designed to detect <strong>actual automation tools</strong>, not normal browser features. The script has been calibrated to minimize false positives in standard browser environments.</p>
@@ -93,697 +117,1378 @@
     </div>
 
     <script>
-        // Automation Detection Script
-        (function() {
-            // Utility functions
-            const utils = {
-                // Checks if a property exists on an object
-                hasProperty: function(obj, prop) {
-                    try {
-                        return prop in obj;
-                    } catch (e) {
-                        return false;
-                    }
-                },
-                
-                // Checks if a method is non-native (overridden)
-                isMethodNonNative: function(method) {
-                    if (!method) return false;
-                    try {
-                        return !Function.prototype.toString.call(method).includes('[native code]');
-                    } catch (e) {
-                        return false;
-                    }
-                },
-                
-                // Gets property descriptor
-                getPropertyDescriptor: function(obj, prop) {
-                    try {
-                        return Object.getOwnPropertyDescriptor(obj, prop);
-                    } catch (e) {
-                        return null;
-                    }
-                },
-                
-                // Checks if running in iframe
-                isInIframe: function() {
-                    try {
-                        return window.self !== window.top;
-                    } catch (e) {
-                        return true; // Access denied means we're in an iframe
-                    }
-                },
-                
-                // Checks if string contains a substring
-                stringContains: function(str, substring) {
-                    return String(str).indexOf(substring) > -1;
-                },
-                
-                // Get all window properties up the prototype chain
-                getAllWindowProperties: function(obj) {
-                    let props = [];
-                    do {
-                        props = props.concat(Object.getOwnPropertyNames(obj));
-                    } while (obj = Object.getPrototypeOf(obj));
-                    return props;
+    /**
+     * BotDetector - A comprehensive system for detecting bots, automation tools, and fraud
+     * This implementation is based on deobfuscated code from a professional anti-bot system
+     */
+    const BotDetector = (function() {
+        'use strict';
+
+        // Main detection report object
+        const detectionResults = {
+            browserEnvironment: {},
+            jsEnvironment: {},
+            botFrameworks: {},
+            browserBehavior: {},
+            fingerprinting: {},
+            hardware: {},
+            apiManipulation: {},
+            deception: {}
+        };
+        
+        // Utility functions
+        const utils = {
+            hashString: function(str) {
+                let hash = 2166136261;
+                for (let i = 0; i < str.length; i++) {
+                    hash ^= str.charCodeAt(i);
+                    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
                 }
-            };
+                return hash >>> 0;
+            },
             
-            // Results collector
-            const results = {
-                detections: [],
+            isMethodNonNative: function(method) {
+                const methodString = Function.prototype.toString.call(method);
+                return !methodString.includes('[native code]');
+            },
+            
+            getNonNativeMethodString: function(method, maxLength = 1024) {
+                try {
+                    return Function.prototype.toString.call(method)
+                        .replace(/^function\s*\(\)\s*\{/, '')
+                        .substring(0, maxLength);
+                } catch (error) {
+                    return '';
+                }
+            },
+            
+            getStackTrace: function() {
+                try {
+                    throw new Error();
+                } catch (error) {
+                    return error.stack || '';
+                }
+            }
+        };
+        
+        //===============================================================
+        // 1. Browser Environment Detection
+        //===============================================================
+        
+        const browserEnvironment = {
+            detectWebGL: function() {
+                try {
+                    const canvas = document.createElement('canvas');
+                    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+                    
+                    if (!gl) {
+                        return { webGLAvailable: false };
+                    }
+                    
+                    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+                    if (!debugInfo) {
+                        return { webGLAvailable: true, debugInfoAvailable: false };
+                    }
+                    
+                    const vendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL);
+                    const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+                    const shadingLanguageVersion = gl.getParameter(gl.SHADING_LANGUAGE_VERSION);
+                    const webglVersion = gl.getParameter(gl.VERSION);
+                    const vendorName = gl.getParameter(gl.VENDOR);
+                    const rendererName = gl.getParameter(gl.RENDERER);
+                    
+                    const extensions = gl.getSupportedExtensions();
+                    const extensionsHash = extensions ? utils.hashString(extensions.join(',')) : '';
+                    
+                    detectionResults.browserEnvironment.webGL = {
+                        vendor: vendor?.toLowerCase(),
+                        renderer: renderer?.toLowerCase(),
+                        shadingLanguageVersion: shadingLanguageVersion?.toLowerCase(),
+                        webglVersion: webglVersion?.toLowerCase(),
+                        vendorName: vendorName?.toLowerCase(),
+                        rendererName: rendererName?.toLowerCase(),
+                        extensionsHash: extensionsHash
+                    };
+                    
+                    return detectionResults.browserEnvironment.webGL;
+                } catch (error) {
+                    return { error: error.message };
+                }
+            },
+            
+            getBrowserChrome: function() {
+                const chromeFeatures = [];
+                const uiElements = ['locationbar', 'menubar', 'personalbar', 'scrollbars', 'statusbar', 'toolbar'];
+                let hasNonStandardChrome = false;
                 
-                add: function(category, name, details) {
-                    this.detections.push({
-                        category: category,
-                        name: name,
-                        details: details || '',
-                        timestamp: new Date().toISOString()
+                for (let i = 0; i < uiElements.length; i++) {
+                    const element = window[uiElements[i]];
+                    const visibility = element && typeof element.visible === 'boolean' ? 
+                        +element.visible : '-';
+                    
+                    if (visibility !== 1) {
+                        hasNonStandardChrome = true;
+                    }
+                    
+                    chromeFeatures.push(visibility);
+                }
+                
+                detectionResults.browserEnvironment.chrome = {
+                    features: chromeFeatures,
+                    nonStandard: hasNonStandardChrome
+                };
+                
+                return detectionResults.browserEnvironment.chrome;
+            },
+            
+            detectScreenAnomalies: function() {
+                const screenObj = window.screen;
+                
+                const hasZeroScreenSize = screenObj.width <= 1 || screenObj.height <= 1;
+                const hasZeroAvailableScreenSize = screenObj.availHeight <= 1 || screenObj.availWidth <= 1;
+                const hasSmallColorDepth = screenObj.colorDepth <= 8 || screenObj.pixelDepth <= 8 || window.devicePixelRatio <= 0;
+                
+                detectionResults.browserEnvironment.screen = {
+                    zeroSize: hasZeroScreenSize,
+                    zeroAvailableSize: hasZeroAvailableScreenSize,
+                    smallColorDepth: hasSmallColorDepth,
+                    width: screenObj.width,
+                    height: screenObj.height,
+                    availWidth: screenObj.availWidth,
+                    availHeight: screenObj.availHeight,
+                    colorDepth: screenObj.colorDepth,
+                    pixelDepth: screenObj.pixelDepth,
+                    devicePixelRatio: window.devicePixelRatio
+                };
+                
+                return detectionResults.browserEnvironment.screen;
+            }
+        };
+        
+        //===============================================================
+        // 2. JavaScript Environment Analysis
+        //===============================================================
+        
+        const jsEnvironment = {
+            detectNativeFunctionTampering: function() {
+                const results = {};
+                
+                const functionPairs = [
+                    ['Document.prototype.createElement', Document.prototype.createElement],
+                    ['HTMLElement.prototype.getBoundingClientRect', HTMLElement.prototype.getBoundingClientRect],
+                    ['navigator.userAgent getter', Object.getOwnPropertyDescriptor(Navigator.prototype, 'userAgent')?.get],
+                    ['Date.prototype.getTimezoneOffset', Date.prototype.getTimezoneOffset]
+                ];
+                
+                for (const [name, func] of functionPairs) {
+                    if (func) {
+                        const isNonNative = utils.isMethodNonNative(func);
+                        results[name] = {
+                            isModified: isNonNative
+                        };
+                        
+                        if (isNonNative) {
+                            results[name].methodBody = utils.getNonNativeMethodString(func);
+                        }
+                    }
+                }
+                
+                detectionResults.jsEnvironment.nativeFunctionTampering = results;
+                return results;
+            },
+            
+            analyzeStackTrace: function() {
+                try {
+                    document.createElement('-');
+                } catch (error) {
+                    const stack = error.stack || '';
+                    
+                    const patterns = [
+                        'at callFunction', 
+                        'userscript', 
+                        'evaluateJavascriptFunction',
+                        'evaluation_script',
+                        'apply.navigator',
+                        'fn (eval at evalFunc)',
+                        'eval at evaluate',
+                        'utilityscript.evaluate',
+                        'pptr.evaluate'
+                    ];
+                    
+                    const detectedPatterns = patterns.filter(pattern => 
+                        stack.toLowerCase().includes(pattern.toLowerCase())
+                    );
+                    
+                    detectionResults.jsEnvironment.stackTrace = {
+                        suspicious: detectedPatterns.length > 0,
+                        detectedPatterns: detectedPatterns,
+                        stackSample: stack.substring(0, 256)
+                    };
+                    
+                    return detectionResults.jsEnvironment.stackTrace;
+                }
+            },
+            
+            getMathPrecisionTest: function() {
+                try {
+                    const testPI = Number('3.141592653589793');
+                    
+                    const checkFirst = eval(testPI + ' ** -100') == +'1.9275814160560204e-50';
+                    const checkSecond = eval(testPI + ' ** -100') == +'1.9275814160560185e-50';
+                    const checkThird = eval(testPI + ' ** -100') == +'1.9275814160560206e-50';
+                    
+                    detectionResults.jsEnvironment.mathPrecision = {
+                        checkFirst,
+                        checkSecond,
+                        checkThird,
+                        result: '' + +checkFirst + +checkSecond + +checkThird
+                    };
+                    
+                    return detectionResults.jsEnvironment.mathPrecision;
+                } catch (error) {
+                    return { error: error.message };
+                }
+            }
+        };
+        
+        //===============================================================
+        // 3. Bot Framework Detection
+        //===============================================================
+        
+        const botFramework = {
+            detectAutomationGlobals: function() {
+                const automationGlobals = [
+                    '_phantom',
+                    '__nightmare',
+                    '_selenium',
+                    'callPhantom',
+                    'callSelenium',
+                    '_Selenium_IDE_Recorder',
+                    'domAutomation',
+                    'domAutomationController',
+                    '_WEBDRIVER_ELEM_CACHE',
+                    'wptagentGetInteractivePeriods',
+                    'fSCInitialize',
+                    '__webdriverFunc',
+                    'geb',
+                    'awesomium',
+                    '$chrome_asyncScriptInfo',
+                    'webdriver',
+                    '__webdriverFunc',
+                    '_WEBDRIVER_ELEM_CACHE',
+                    '$cdc_asdjflasutopfhvcZLmcfl_'
+                ];
+                
+                const detectedGlobals = automationGlobals.filter(name => {
+                    try {
+                        return window[name] !== undefined;
+                    } catch (e) {
+                        return false;
+                    }
+                });
+                
+                detectionResults.botFrameworks.globals = {
+                    detected: detectedGlobals.length > 0,
+                    detectedGlobals
+                };
+                
+                return detectionResults.botFrameworks.globals;
+            },
+            
+            detectWebdriverProperties: function() {
+                let results = {
+                    navigatorHasWebdriver: false,
+                    documentHasWebdriverAttributes: false
+                };
+                
+                try {
+                    if ('webdriver' in navigator) {
+                        results.navigatorHasWebdriver = true;
+                        results.webdriverValue = navigator.webdriver;
+                    }
+                } catch (e) {}
+                
+                try {
+                    const docElement = document.documentElement;
+                    const seleniumAttr = docElement.getAttribute('selenium');
+                    const webdriverAttr = docElement.getAttribute('webdriver');
+                    const driverAttr = docElement.getAttribute('driver');
+                    const cdcAttr = docElement.getAttribute('cd_frame_id_');
+                    
+                    results.documentHasWebdriverAttributes = !!(seleniumAttr || webdriverAttr || driverAttr || cdcAttr);
+                    
+                    if (results.documentHasWebdriverAttributes) {
+                        results.attributes = {
+                            selenium: !!seleniumAttr,
+                            webdriver: !!webdriverAttr,
+                            driver: !!driverAttr,
+                            cd_frame_id_: !!cdcAttr
+                        };
+                    }
+                } catch (e) {}
+                
+                try {
+                    const navProto = Object.getPrototypeOf(navigator);
+                    const webdriverPropDesc = Object.getOwnPropertyDescriptor(navProto, 'webdriver');
+                    
+                    if (webdriverPropDesc) {
+                        results.hasWebdriverPropertyDescriptor = true;
+                        
+                        if (webdriverPropDesc.get && utils.isMethodNonNative(webdriverPropDesc.get)) {
+                            results.webdriverGetterModified = true;
+                            results.webdriverGetterBody = utils.getNonNativeMethodString(webdriverPropDesc.get);
+                        }
+                    }
+                } catch (e) {}
+                
+                detectionResults.botFrameworks.webdriver = results;
+                return results;
+            },
+            
+            detectAutomationExtensions: function() {
+                const results = {
+                    hasChromeExtension: false,
+                    hasPrototypeInRuntimeSendMessage: false
+                };
+                
+                if (window.chrome && !!window.chrome.extension) {
+                    results.hasChromeExtension = true;
+                }
+                
+                try {
+                    if (window.chrome && window.chrome.runtime && window.chrome.runtime.sendMessage) {
+                        results.hasPrototypeInRuntimeSendMessage = !!window.chrome.runtime.sendMessage.prototype;
+                    }
+                } catch (e) {}
+                
+                detectionResults.botFrameworks.extensions = results;
+                return results;
+            }
+        };
+        
+        //===============================================================
+        // 4. Browser Behavior Analysis
+        //===============================================================
+        
+        const browserBehavior = {
+            initMouseMonitoring: function() {
+                const state = {
+                    movements: [],
+                    clicks: [],
+                    firstMovementTime: null,
+                    firstClickTime: null
+                };
+                
+                const recordMousePosition = function(event, type) {
+                    const timestamp = Date.now();
+                    const isTrusted = event.isTrusted !== false;
+                    
+                    const position = {
+                        clientX: event.clientX,
+                        clientY: event.clientY,
+                        pageX: event.pageX,
+                        pageY: event.pageY,
+                        screenX: event.screenX,
+                        screenY: event.screenY,
+                        timestamp: timestamp,
+                        isTrusted: isTrusted
+                    };
+                    
+                    if (type === 'movement') {
+                        if (!state.firstMovementTime) {
+                            state.firstMovementTime = timestamp;
+                        }
+                        state.movements.push(position);
+                        
+                        if (state.movements.length > 20) {
+                            state.movements.shift();
+                        }
+                    } else if (type === 'click') {
+                        if (!state.firstClickTime) {
+                            state.firstClickTime = timestamp;
+                        }
+                        
+                        try {
+                            const element = event.target;
+                            if (element) {
+                                position.element = {
+                                    tagName: element.tagName.toLowerCase(),
+                                    id: element.id,
+                                    className: element.className
+                                };
+                                
+                                position.isInteractive = 
+                                    ['button', 'a', 'input', 'select', 'textarea'].includes(position.element.tagName) ||
+                                    typeof element.onclick === 'function';
+                            }
+                        } catch (e) {}
+                        
+                        state.clicks.push(position);
+                        
+                        if (state.clicks.length > 10) {
+                            state.clicks.shift();
+                        }
+                    }
+                    
+                    detectionResults.browserBehavior.mouse = state;
+                };
+                
+                document.addEventListener('mousemove', e => recordMousePosition(e, 'movement'));
+                document.addEventListener('click', e => recordMousePosition(e, 'click'));
+                
+                return {
+                    getState: () => state
+                };
+            },
+            
+            initKeyboardMonitoring: function() {
+                const state = {
+                    events: [],
+                    firstEventTime: null,
+                    uniqueKeysPressed: new Set()
+                };
+                
+                const recordKeyEvent = function(event) {
+                    const timestamp = Date.now();
+                    
+                    if (!state.firstEventTime) {
+                        state.firstEventTime = timestamp;
+                    }
+                    
+                    const keyEvent = {
+                        type: event.type,
+                        key: event.key,
+                        code: event.code,
+                        keyCode: event.keyCode,
+                        isTrusted: event.isTrusted !== false,
+                        timestamp: timestamp
+                    };
+                    
+                    state.events.push(keyEvent);
+                    state.uniqueKeysPressed.add(event.key);
+                    
+                    if (state.events.length > 20) {
+                        state.events.shift();
+                    }
+                    
+                    detectionResults.browserBehavior.keyboard = {
+                        events: state.events,
+                        firstEventTime: state.firstEventTime,
+                        uniqueKeysCount: state.uniqueKeysPressed.size
+                    };
+                };
+                
+                document.addEventListener('keydown', recordKeyEvent);
+                document.addEventListener('keyup', recordKeyEvent);
+                
+                return {
+                    getState: () => detectionResults.browserBehavior.keyboard
+                };
+            },
+            
+            initVisibilityMonitoring: function() {
+                const state = {
+                    changes: [],
+                    currentState: document.visibilityState
+                };
+                
+                const recordVisibilityChange = function() {
+                    const timestamp = Date.now();
+                    const visibilityState = document.visibilityState;
+                    
+                    state.changes.push({
+                        timestamp: timestamp,
+                        state: visibilityState
                     });
-                    this.updateUI();
-                },
+                    
+                    state.currentState = visibilityState;
+                    
+                    if (state.changes.length > 10) {
+                        state.changes.shift();
+                    }
+                    
+                    detectionResults.browserBehavior.visibility = state;
+                };
                 
-                updateUI: function() {
-                    const resultsElem = document.getElementById('results');
-                    if (this.detections.length === 0) {
-                        resultsElem.innerHTML = '<p class="no-detection">No automation detected.</p>';
+                recordVisibilityChange();
+                
+                document.addEventListener('visibilitychange', recordVisibilityChange);
+                
+                return {
+                    getState: () => state
+                };
+            }
+        };
+        
+        //===============================================================
+        // 5. Advanced Fingerprinting
+        //===============================================================
+        
+        const fingerprinting = {
+            getCanvasFingerprint: function() {
+                try {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 400;
+                    canvas.height = 60;
+                    
+                    const context = canvas.getContext('2d');
+                    
+                    context.fillStyle = '#f60';
+                    context.fillRect(125, 1, 62, 20);
+                    
+                    context.fillStyle = '#069';
+                    context.font = '11pt Arial';
+                    context.fillText('Cwm fjordbank glyphs vext quiz, 😃', 2, 15);
+                    
+                    context.fillStyle = 'rgba(102, 204, 0, 0.7)';
+                    context.font = '18pt Arial';
+                    context.fillText('Cwm fjordbank glyphs vext quiz, 😃', 4, 45);
+                    
+                    const fingerprint = canvas.toDataURL();
+                    const hash = utils.hashString(fingerprint);
+                    
+                    detectionResults.fingerprinting.canvas = {
+                        hash: hash,
+                        sampleLength: fingerprint.length
+                    };
+                    
+                    return detectionResults.fingerprinting.canvas;
+                } catch (error) {
+                    return { error: error.message };
+                }
+            },
+            
+            getAudioFingerprint: function() {
+                try {
+                    const audioContext = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, 5000, 44100);
+                    
+                    const analyser = audioContext.createAnalyser();
+                    const oscillator = audioContext.createOscillator();
+                    const dynamicsCompressor = audioContext.createDynamicsCompressor();
+                    
+                    oscillator.type = 'triangle';
+                    oscillator.frequency.value = 10000;
+                    
+                    dynamicsCompressor.threshold.value = -50;
+                    dynamicsCompressor.knee.value = 40;
+                    dynamicsCompressor.attack.value = 0;
+                    
+                    oscillator.connect(dynamicsCompressor);
+                    dynamicsCompressor.connect(analyser);
+                    dynamicsCompressor.connect(audioContext.destination);
+                    
+                    oscillator.start(0);
+                    audioContext.startRendering();
+                    
+                    const audioData = [];
+                    
+                    audioContext.oncomplete = function(event) {
+                        const samples = event.renderedBuffer.getChannelData(0);
+                        
+                        for (let i = 0; i < 20; i++) {
+                            const index = Math.floor(samples.length / 20 * i);
+                            audioData.push(samples[index]);
+                        }
+                        
+                        const hash = utils.hashString(audioData.join(''));
+                        
+                        detectionResults.fingerprinting.audio = {
+                            hash: hash,
+                            sampleCount: audioData.length
+                        };
+                    };
+                    
+                    return { started: true };
+                } catch (error) {
+                    return { error: error.message };
+                }
+            },
+            
+            getFontDetection: function() {
+                const baseFonts = ['monospace', 'sans-serif', 'serif'];
+                const fontList = [
+                    'Arial', 'Courier New', 'Georgia', 'Times New Roman', 'Verdana',
+                    'Helvetica', 'Tahoma', 'Trebuchet MS', 'Geneva', 'Cambria',
+                    'Garamond', 'Palatino', 'Roboto', 'Segoe UI', 'Ubuntu',
+                    'DejaVu Sans', 'Liberation Sans'
+                ];
+                
+                const testString = 'mmmmmmmmmmlli';
+                const testSize = '72px';
+                const h = document.getElementsByTagName('body')[0];
+                
+                const s = document.createElement('span');
+                s.style.fontSize = testSize;
+                s.innerHTML = testString;
+                
+                const defaultWidth = {};
+                const defaultHeight = {};
+                
+                for (let index in baseFonts) {
+                    s.style.fontFamily = baseFonts[index];
+                    h.appendChild(s);
+                    defaultWidth[baseFonts[index]] = s.offsetWidth;
+                    defaultHeight[baseFonts[index]] = s.offsetHeight;
+                    h.removeChild(s);
+                }
+                
+                const detected = [];
+                
+                for (let i = 0; i < fontList.length; i++) {
+                    let isDetected = false;
+                    
+                    for (let j = 0; j < baseFonts.length; j++) {
+                        s.style.fontFamily = fontList[i] + ',' + baseFonts[j];
+                        h.appendChild(s);
+                        
+                        const matched = 
+                            s.offsetWidth !== defaultWidth[baseFonts[j]] || 
+                            s.offsetHeight !== defaultHeight[baseFonts[j]];
+                        
+                        h.removeChild(s);
+                        
+                        if (matched) {
+                            isDetected = true;
+                            break;
+                        }
+                    }
+                    
+                    if (isDetected) {
+                        detected.push(fontList[i]);
+                    }
+                }
+                
+                detectionResults.fingerprinting.fonts = {
+                    detectedFonts: detected,
+                    detectedCount: detected.length
+                };
+                
+                return detectionResults.fingerprinting.fonts;
+            }
+        };
+        
+        //===============================================================
+        // 6. Hardware and Device Detection
+        //===============================================================
+        
+        const hardware = {
+            getMediaDevices: function() {
+                return new Promise((resolve) => {
+                    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+                        detectionResults.hardware.mediaDevices = {
+                            available: false
+                        };
+                        resolve(detectionResults.hardware.mediaDevices);
                         return;
                     }
                     
-                    let html = '';
-                    let currentCategory = '';
-                    
-                    for (const detection of this.detections) {
-                        if (detection.category !== currentCategory) {
-                            currentCategory = detection.category;
-                            html += `<div class="category">${currentCategory}</div>`;
-                        }
-                        
-                        html += `
-                            <div class="detection">
-                                <strong>${detection.name}</strong>
-                                ${detection.details ? ': ' + detection.details : ''}
-                                <div class="timestamp">${new Date(detection.timestamp).toLocaleTimeString()}</div>
-                            </div>
-                        `;
-                    }
-                    
-                    resultsElem.innerHTML = html;
-                    document.getElementById('status').textContent = `Detection completed. Found ${this.detections.length} indicators of automation.`;
-                }
-            };
-            
-            // WebDriver Detections
-            const webDriverChecks = {
-                run: function() {
-                    // Check navigator.webdriver property
-                    if (navigator.webdriver) {
-                        results.add('WebDriver', 'navigator.webdriver is present', 'This property is explicitly set to true by WebDriver implementations');
-                    }
-                    
-                    // Check for WebDriver attributes on HTML elements
-                    const checkAttributes = () => {
-                        const attributesToCheck = ['selenium', 'webdriver', 'driver', 'cd_frame_id_'];
-                        for (const attr of attributesToCheck) {
-                            if (document.documentElement.getAttribute(attr)) {
-                                results.add('WebDriver', `Document has '${attr}' attribute`, 
-                                    `Value: ${document.documentElement.getAttribute(attr)}`);
-                            }
+                    navigator.mediaDevices.enumerateDevices()
+                        .then(devices => {
+                            const counts = {
+                                audioInput: 0,
+                                audioOutput: 0,
+                                videoInput: 0
+                            };
                             
-                            // Check iframe elements
-                            const iframes = [...document.querySelectorAll('iframe'), ...document.querySelectorAll('frame')];
-                            for (const iframe of iframes) {
-                                if (iframe.getAttribute(attr)) {
-                                    results.add('WebDriver', `iframe has '${attr}' attribute`, 
-                                        `Value: ${iframe.getAttribute(attr)}`);
+                            devices.forEach(device => {
+                                switch (device.kind) {
+                                    case 'audioinput':
+                                        counts.audioInput++;
+                                        break;
+                                    case 'audiooutput':
+                                        counts.audioOutput++;
+                                        break;
+                                    case 'videoinput':
+                                        counts.videoInput++;
+                                        break;
                                 }
-                            }
-                        }
-                    };
-                    
-                    // Execute check or wait for document to be ready
-                    if (document.readyState === 'complete') {
-                        checkAttributes();
-                    } else {
-                        document.addEventListener('DOMContentLoaded', checkAttributes);
-                    }
-                    
-                    // Check for modified webdriver property
-                    const navigatorDesc = utils.getPropertyDescriptor(Object.getPrototypeOf(navigator), 'webdriver');
-                    if (navigatorDesc && navigatorDesc.get && utils.isMethodNonNative(navigatorDesc.get)) {
-                        results.add('WebDriver', 'navigator.webdriver getter is modified', 
-                            'The getter method for this property has been overridden');
-                    }
-                    
-                    // Check for webdriver-related events
-                    const webdriverEvents = [
-                        'webdriver-evaluate', 'driver-evaluate', 'selenium-evaluate',
-                        'webdriverCommand', 'webdriver-evaluate-response'
-                    ];
-                    
-                    for (const eventType of webdriverEvents) {
-                        const detector = function(e) {
-                            if (e.type === eventType) {
-                                results.add('WebDriver', `WebDriver event detected: ${eventType}`);
-                                document.removeEventListener(eventType, detector);
-                            }
-                        };
-                        document.addEventListener(eventType, detector);
-                    }
-                }
-            };
-            
-            // Automation Framework Detection
-            const automationFrameworkChecks = {
-                run: function() {
-                    // Check for automation globals
-                    const automationGlobals = [
-                        { name: '_phantom', alias: 'PhantomJS' },
-                        { name: 'callPhantom', alias: 'PhantomJS' },
-                        { name: '_selenium', alias: 'Selenium' },
-                        { name: 'callSelenium', alias: 'Selenium' },
-                        { name: '_Selenium_IDE_Recorder', alias: 'Selenium IDE' },
-                        { name: 'domAutomation', alias: 'Chrome domAutomation' },
-                        { name: 'domAutomationController', alias: 'Chrome domAutomation' },
-                        { name: '__nightmare', alias: 'Nightmare.js' },
-                        { name: '__webdriver_script_fn', alias: 'WebDriver' },
-                        { name: '__webdriver_script_function', alias: 'WebDriver' },
-                        { name: '__webdriver_script_func', alias: 'WebDriver' },
-                        { name: '__webdriver_evaluate', alias: 'WebDriver' },
-                        { name: '__selenium_evaluate', alias: 'Selenium' },
-                        { name: '__fxdriver_evaluate', alias: 'Firefox WebDriver' },
-                        { name: '__driver_unwrapped', alias: 'WebDriver' },
-                        { name: '__webdriver_unwrapped', alias: 'WebDriver' },
-                        { name: '__driver_evaluate', alias: 'WebDriver' },
-                        { name: '__selenium_unwrapped', alias: 'Selenium' },
-                        { name: '__fxdriver_unwrapped', alias: 'Firefox WebDriver' },
-                        { name: '__$webdriverAsyncExecutor', alias: 'WebDriver' },
-                        { name: 'fmget_targets', alias: 'Flash Microscope' }, 
-                        { name: 'spawn', alias: 'Node.js environment' },
-                        { name: 'emit', alias: 'Node.js environment' }
-                    ];
-                    
-                    for (const global of automationGlobals) {
-                        if (utils.hasProperty(window, global.name)) {
-                            results.add('Automation Framework', `${global.alias} detected`, 
-                                `Found global property: ${global.name}`);
-                        }
-                    }
-                    
-                    // Check for Chrome Debugger Protocol
-                    if (window.chrome && window.chrome.csi && window.chrome.loadTimes) {
-                        try {
-                            window.webkitStorageInfo.queryUsageAndQuota(); // Will throw in CDP
-                            window.chrome.runtime.sendMessage(); // This should throw without extensions
-                        } catch(e) {
-                            if (e.toString().indexOf("TypeError: Cannot read properties of undefined") === -1) {
-                                // This is expected behavior in automation contexts
-                                results.add('Automation Framework', 'Chrome Debugging Protocol', 
-                                    'Error pattern suggests Chrome is being controlled via CDP');
-                            }
-                        }
-                    }
-                    
-                    // Check for CDP-specific properties
-                    if (window.cdc_adoQpoasnfa76pfcZLmcfl_ || 
-                        utils.hasProperty(document, '$cdc_asdjflasutopfhvcZLmcfl_')) {
-                        results.add('Automation Framework', 'Chrome DevTools Protocol', 
-                            'Found CDP marker properties added by ChromeDriver');
-                    }
-                    
-                    // Check for Puppeteer
-                    const windowProps = Object.getOwnPropertyNames(window).slice(-300);
-                    const cdcProps = windowProps.filter(prop => 
-                        /^cdc_[a-zA-Z0-9]{22}_(Array|Promise|Symbol)$/.test(prop)
-                    );
-                    
-                    if (cdcProps.length) {
-                        results.add('Automation Framework', 'Puppeteer/ChromeDriver', 
-                            `Found suspicious window properties: ${cdcProps.join(', ')}`);
-                    }
-                    
-                    // Check for Playwright
-                    try {
-                        const iframe = document.createElement('iframe');
-                        document.body.appendChild(iframe);
-                        const iframeWindow = iframe.contentWindow;
-                        
-                        const regexMatchPrefix = iframeWindow.RegExp['$&'];
-                        const hasMatchingPrefix = /[a-zA-Z]{3}\_[a-zA-Z]{22}\_(Array|Symbol|Promise)/i.test(regexMatchPrefix);
-                        
-                        if (hasMatchingPrefix) {
-                            results.add('Automation Framework', 'Playwright', 
-                                'Pattern in RegExp behavior indicates Playwright');
-                        }
-                        
-                        document.body.removeChild(iframe);
-                    } catch (e) {
-                        // Iframe testing failed, ignore
-                    }
-                }
-            };
-            
-            // Browser Environment Checks
-            const browserEnvironmentChecks = {
-                run: function() {
-                    // Check for zero/small dimensions (headless)
-                    if (screen.width <= 1 || screen.height <= 1) {
-                        results.add('Browser Environment', 'Zero screen dimensions', 
-                            `Screen size: ${screen.width}x${screen.height}`);
-                    }
-                    
-                    if (screen.availWidth <= 1 || screen.availHeight <= 1) {
-                        results.add('Browser Environment', 'Zero available screen dimensions', 
-                            `Available screen size: ${screen.availWidth}x${screen.availHeight}`);
-                    }
-                    
-                    // Check for suspicious user agent inconsistencies
-                    if (/Chrome/.test(navigator.userAgent) && 
-                        /Google Inc/.test(navigator.vendor) && 
-                        !window.chrome) {
-                        results.add('Browser Environment', 'Chrome user agent without chrome object', 
-                            'This suggests a spoofed user agent');
-                    }
-                    
-                    // Check if browser plugins are inconsistent (common in headless)
-                    const plugins = navigator.plugins;
-                    
-                    // Find plugin by name and filename
-                    const findPluginIndex = function(name, filename) {
-                        for (let i = 0; i < plugins.length; i++) {
-                            const plugin = plugins[i];
-                            if (name && plugin.name === name && filename && plugin.filename === filename) {
-                                return i;
-                            }
-                        }
-                        return -1;
-                    };
-
-                    if (plugins.length > 0) {
-                        const pdfViewerIndex = findPluginIndex("Chrome PDF Viewer", "internal-pdf-viewer");
-                        const pdfViewer2Index = findPluginIndex("Chrome PDF Viewer", "mhjfbmdgcfjbbpaeojofohoefgiehjai");
-                        const naclPluginIndex = findPluginIndex("Native Client", "internal-nacl-plugin");
-
-                        const hasPdfViewerInconsistency = "Chrome PDF Viewer" in plugins && 
-                                                         !("Chrome PDF Plugin" in plugins) && 
-                                                         pdfViewerIndex !== -1 && 
-                                                         pdfViewer2Index !== -1 && 
-                                                         pdfViewer2Index < pdfViewerIndex && 
-                                                         naclPluginIndex === -1;
-
-                        if (hasPdfViewerInconsistency) {
-                            results.add('Browser Environment', 'Inconsistent Chrome PDF plugins', 
-                                'Plugin arrangement indicates headless environment');
-                        }
-                    }
-                    
-                    // Check if user agent changes between checks
-                    const userAgentValues = [];
-                    for (let i = 0; i < 5; i++) {
-                        const currentUA = navigator.userAgent;
-                        let isDuplicate = false;
-                        
-                        for (let j = 0; j < userAgentValues.length; j++) {
-                            if (userAgentValues[j] === currentUA) {
-                                isDuplicate = true;
-                                break;
-                            }
-                        }
-                        
-                        if (!isDuplicate) {
-                            userAgentValues.push(currentUA);
-                        }
-                    }
-                    
-                    if (userAgentValues.length > 1) {
-                        results.add('Browser Environment', 'Multiple user agent values detected', 
-                            `Found ${userAgentValues.length} different user agent strings`);
-                    }
-                    
-                    // Check if document.elementFromPoint returns null
-                    if (document.elementFromPoint(0, 0) === null) {
-                        results.add('Browser Environment', 'elementFromPoint returns null', 
-                            'This is common in headless browsers');
-                    }
-                }
-            };
-            
-            // Feature Anomaly Checks
-            const featureAnomalyChecks = {
-                run: function() {
-                    // Check for disabled BigInt support
-                    try {
-                        if (typeof BigInt === 'function') {
-                            const testBigInt = eval('typeof 1n === "bigint" && BigInt(1) === 1n && Number(1n) === 1');
-                            if (!testBigInt) {
-                                results.add('Feature Anomalies', 'BigInt disabled', 
-                                    'BigInt is recognized but does not work properly');
-                            }
-                        }
-                    } catch (e) {
-                        results.add('Feature Anomalies', 'BigInt evaluation error', e.message);
-                    }
-                    
-                    // Check for disabled arrow functions
-                    try {
-                        const testArrow = eval("()=>!!1")();
-                        if (!testArrow) {
-                            results.add('Feature Anomalies', 'Arrow functions disabled', 
-                                'Arrow functions are recognized but do not work properly');
-                        }
-                    } catch (e) {
-                        results.add('Feature Anomalies', 'Arrow function evaluation error', e.message);
-                    }
-                    
-                    // Check for invalid MimeType toString
-                    try {
-                        const mimeTypeListString = navigator.mimeTypes && navigator.mimeTypes.toString();
-                        if (mimeTypeListString !== "[object MimeTypeArray]" && 
-                            !/MSMimeTypesCollection/i.test(mimeTypeListString)) {
-                            results.add('Feature Anomalies', 'Invalid MimeType array', 
-                                `toString returns: ${mimeTypeListString}`);
-                        }
-                    } catch (e) {
-                        // Ignore errors
-                    }
-                    
-                    // Check for modified Date methods
-                    const date = new Date();
-                    if (utils.isMethodNonNative(date.getTimezoneOffset)) {
-                        results.add('Feature Anomalies', 'Modified Date.getTimezoneOffset method', 
-                            'This method has been overridden');
-                    }
-                    
-                    // Check for invalid window innerWidth type
-                    const innerWidth = window.innerWidth;
-                    if (typeof innerWidth !== "number") {
-                        results.add('Feature Anomalies', 'Non-numeric window.innerWidth', 
-                            `Type: ${typeof innerWidth}, Value: ${innerWidth}`);
-                    }
-                    
-                    // Check for browser features list inconsistencies
-                    const featureChecks = [
-                        { feature: 'help', object: window },
-                        { feature: 'msLaunchUri', object: navigator },
-                        { feature: 'sidebar', object: window },
-                        { feature: 'ActiveXObject', object: window },
-                        { feature: 'IndexedDB', object: window },
-                        { feature: 'WebSocket', object: window },
-                        { feature: 'VRDisplay', object: window },
-                        { feature: 'BluetoothDevice', object: window }
-                    ];
-                    
-                    let featureInconsistencies = [];
-                    
-                    for (const check of featureChecks) {
-                        try {
-                            const hasFeature = check.feature in check.object;
-                            // Look for anomalies - features missing in Chrome but present, etc.
-                            // This is a simplified check - a real implementation would be more sophisticated
-                            if ((navigator.userAgent.includes('Chrome') && check.feature === 'sidebar' && hasFeature) ||
-                                (navigator.userAgent.includes('Firefox') && check.feature === 'ActiveXObject' && hasFeature)) {
-                                featureInconsistencies.push(check.feature);
-                            }
-                        } catch (e) {
-                            // Ignore errors
-                        }
-                    }
-                    
-                    if (featureInconsistencies.length) {
-                        results.add('Feature Anomalies', 'Browser feature inconsistencies', 
-                            `Inconsistent features: ${featureInconsistencies.join(', ')}`);
-                    }
-                }
-            };
-            
-            // DOM and Event Anomaly Checks
-            const domAnomalyChecks = {
-                run: function() {
-                    // Check for overridden DOM methods
-                    const checkDomMethod = (object, methodName) => {
-                        try {
-                            const method = object.prototype[methodName];
-                            if (method && utils.isMethodNonNative(method)) {
-                                results.add('DOM Anomalies', `Modified ${object.name}.${methodName}`, 
-                                    'This method has been overridden');
-                            }
-                        } catch (e) {
-                            // Ignore errors
-                        }
-                    };
-                    
-                    // Check common DOM methods
-                    checkDomMethod(HTMLElement, 'getBoundingClientRect');
-                    checkDomMethod(HTMLElement, 'getClientRects');
-                    checkDomMethod(Document, 'createElement');
-                    checkDomMethod(Document, 'querySelector');
-                    checkDomMethod(Document, 'querySelectorAll');
-                    checkDomMethod(Document, 'evaluate');
-                    
-                    // Check for iframe contentWindow descriptor modifications
-                    try {
-                        const iframeDescriptor = utils.getPropertyDescriptor(HTMLIFrameElement.prototype, 'contentWindow');
-                        if (iframeDescriptor && iframeDescriptor.get && utils.isMethodNonNative(iframeDescriptor.get)) {
-                            results.add('DOM Anomalies', 'Modified iframe.contentWindow getter', 
-                                'The getter for contentWindow has been overridden');
-                        }
-                    } catch (e) {
-                        // Ignore errors
-                    }
-                    
-                    // Check for document cookie descriptor modifications
-                    try {
-                        const cookieDescriptor = utils.getPropertyDescriptor(Document.prototype, 'cookie');
-                        if (cookieDescriptor && 
-                            ((cookieDescriptor.get && utils.isMethodNonNative(cookieDescriptor.get)) || 
-                             (cookieDescriptor.set && utils.isMethodNonNative(cookieDescriptor.set)))) {
-                            results.add('DOM Anomalies', 'Modified document.cookie accessors', 
-                                'The getter or setter for cookie has been overridden');
-                        }
-                    } catch (e) {
-                        // Ignore errors
-                    }
-                    
-                    // Check for WebGL getParameter method overrides
-                    try {
-                        const canvas = document.createElement('canvas');
-                        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-                        
-                        if (gl && utils.isMethodNonNative(gl.getParameter)) {
-                            results.add('DOM Anomalies', 'Modified WebGL.getParameter method', 
-                                'This method has been overridden, commonly done to prevent fingerprinting');
-                        }
-                    } catch (e) {
-                        // Ignore errors
-                    }
-                    
-                    // Check for Navigator prototype modifications
-                    if (Object.getPrototypeOf(navigator) !== Navigator.prototype) {
-                        results.add('DOM Anomalies', 'Modified Navigator prototype', 
-                            'The prototype chain for Navigator has been altered');
-                    }
-                    
-                    // Check for automated stack trace signatures
-                    try {
-                        // Trigger an error to get stack trace
-                        try { null[0](); } catch (error) {
-                            // Check for automation patterns in stack trace
-                            const stackTrace = error.stack || '';
-                            const automationPatterns = [
-                                'at callFunction (<anonymous',
-                                'at UserScript:Scraper',
-                                'evaluateJavascriptFunction',
-                                'evaluation_script',
-                                'apply.navigator',
-                                'at fn (eval at evalFunc)',
-                                'eval at evaluate',
-                                'utilityscript.evaluate',
-                                'pptr.evaluate'
-                            ];
+                            });
                             
-                            for (const pattern of automationPatterns) {
-                                if (utils.stringContains(stackTrace, pattern)) {
-                                    results.add('DOM Anomalies', 'Automation stack trace pattern', 
-                                        `Found pattern: ${pattern}`);
-                                    break;
-                                }
-                            }
-                        }
-                    } catch (e) {
-                        // Ignore errors
-                    }
-                    
-                    // Check for non-trusted clicks and events
-                    const monitorTrust = (event) => {
-                        if (event.isTrusted === false) {
-                            results.add('DOM Anomalies', 'Non-trusted event detected', 
-                                `Event type: ${event.type}`);
-                            document.removeEventListener(event.type, monitorTrust);
-                        }
-                    };
-                    
-                    document.addEventListener('click', monitorTrust);
-                    document.addEventListener('mousemove', monitorTrust);
-                    document.addEventListener('keydown', monitorTrust);
-                }
-            };
+                            detectionResults.hardware.mediaDevices = {
+                                available: true,
+                                counts: counts,
+                                total: devices.length
+                            };
+                            
+                            resolve(detectionResults.hardware.mediaDevices);
+                        })
+                        .catch(error => {
+                            detectionResults.hardware.mediaDevices = {
+                                available: true,
+                                error: error.message
+                            };
+                            resolve(detectionResults.hardware.mediaDevices);
+                        });
+                });
+            },
             
-            // VM and Sandbox Detection
-            const vmSandboxChecks = {
-                run: function() {
-                    // Check for VM backdoor
-                    const vmProperty = 'vm';
-                    if (window[vmProperty] && typeof window[vmProperty] === 'object') {
-                        const vmProps = Object.keys(window[vmProperty]).slice(0, 10).join(',');
-                        results.add('VM/Sandbox', 'VM backdoor detected', 
-                            `Found VM properties: ${vmProps}`);
-                    }
+            getCPUAndMemoryInfo: function() {
+                const results = {
+                    hardwareConcurrency: navigator.hardwareConcurrency,
+                    deviceMemory: navigator.deviceMemory
+                };
+                
+                results.suspiciousHardwareConcurrency = 
+                    navigator.hardwareConcurrency === undefined || 
+                    navigator.hardwareConcurrency <= 1;
                     
-                    // Check for Chrome DevTools Protocol artifacts
-                    const hasChromeProps = !!window.chrome;
-                    const hasRuntimeProps = hasChromeProps && !!window.chrome.runtime;
-                    
-                    if (hasRuntimeProps && window.chrome.runtime.id) {
-                        results.add('VM/Sandbox', 'Chrome extension environment detected', 
-                            `Extension ID: ${window.chrome.runtime.id}`);
-                    }
-                    
-                    // Check for certain debugging hooks
-                    if (typeof window.__REACT_DEVTOOLS_GLOBAL_HOOK__ !== 'undefined' || 
-                        typeof window.__REDUX_DEVTOOLS_EXTENSION__ !== 'undefined') {
-                        results.add('VM/Sandbox', 'Development tools hooks detected', 
-                            'Found React/Redux devtools hooks');
-                    }
-                    
-                    // DevTools window size check
-                    const widthThreshold = 160;
-                    const heightThreshold = 160;
-                    
-                    if (window.outerWidth - window.innerWidth > widthThreshold || 
-                        window.outerHeight - window.innerHeight > heightThreshold) {
-                        results.add('DevTools', 'Chrome DevTools possibly open', 
-                            `Size difference: ${window.outerWidth - window.innerWidth}px width, ${window.outerHeight - window.innerHeight}px height`);
-                    }
-                    
-                    // Console profile detection
-                    let profileDetected = false;
-                    const originalProfile = console.profile;
-                    const originalProfileEnd = console.profileEnd;
-                    
-                    try {
-                        console.profile = function(profileName) {
-                            profileDetected = true;
-                            originalProfile.apply(console, arguments);
-                        };
-                        
-                        console.profileEnd = function() {
-                            originalProfileEnd.apply(console, arguments);
-                        };
-                        
-                        console.profile("DevToolsCheck");
-                        console.profileEnd();
-                        
-                        if (profileDetected) {
-                            results.add('DevTools', 'Console profiler detected', 
-                                'Profile function was intercepted');
-                        }
-                    } catch (e) {
-                        if (e.message && e.message.indexOf('not a function') === -1) {
-                            results.add('DevTools', 'Console profiling error', e.message);
-                        }
-                    } finally {
-                        console.profile = originalProfile;
-                        console.profileEnd = originalProfileEnd;
-                    }
-                    
-                    // Firebug detection
-                    if (window.Firebug && window.Firebug.chrome && window.Firebug.context) {
-                        results.add('DevTools', 'Firebug detected', 
-                            'Firebug object exists in global scope');
-                    }
-                    
-                    // Debugger statement detection
-                    const startTime = Date.now();
-                    try {
-                        // Execute a debugger statement
-                        // In DevTools with break on debugger statements, this will pause
-                        debugger;
-                        const debuggerTime = Date.now() - startTime;
-                        
-                        // If debugger execution took suspiciously long, user might have paused
-                        if (debuggerTime > 100) {
-                            results.add('DevTools', 'Debugger statement pause detected', 
-                                `Execution paused for ${debuggerTime}ms`);
-                        }
-                    } catch (e) {
-                        // Ignore errors
-                    }
-                    
-                    // Try to detect Node.js environment
-                    if ((typeof process !== 'undefined' && process.versions && process.versions.node) || 
-                        typeof global !== 'undefined' || 
-                        typeof module !== 'undefined' && module.exports) {
-                        results.add('VM/Sandbox', 'Node.js environment detected', 
-                            'Found Node.js runtime indicators');
-                    }
-                    
-                    // Detect Cypress test runner
-                    if (typeof window.Cypress === 'object' && typeof window.Cypress.isCy === 'function') {
-                        results.add('VM/Sandbox', 'Cypress test runner detected', 
-                            'Found Cypress automation framework');
-                    }
-                    
-                    // Detect if localStorage is disabled (common in containers)
-                    try {
-                        const testKey = "_automation_check";
-                        window.localStorage.setItem(testKey, testKey);
-                        window.localStorage.removeItem(testKey);
-                    } catch (e) {
-                        results.add('VM/Sandbox', 'localStorage disabled', 
-                            'localStorage is not available: ' + e.message);
-                    }
-                    
-                    // Check for bound browser APIs (often happens in WebDriver)
-                    const isBoundFunction = (func) => {
-                        return func && func.name && !!func.name.match("bound ");
-                    };
-                    
-                    if (isBoundFunction(navigator.getUserMedia) || isBoundFunction(navigator.getBattery)) {
-                        results.add('VM/Sandbox', 'Bound browser APIs detected', 
-                            'Navigator methods appear to be bound functions');
+                results.suspiciousDeviceMemory = 
+                    navigator.deviceMemory === undefined || 
+                    navigator.deviceMemory <= 1;
+                
+                detectionResults.hardware.cpuMemory = results;
+                return results;
+            },
+            
+            detectVMEnvironment: function() {
+                const results = {
+                    isVM: false,
+                    indicators: []
+                };
+                
+                if (window.vmware && typeof window.vmware === 'object') {
+                    results.isVM = true;
+                    results.indicators.push('vmware object present');
+                }
+                
+                if (window.VirtualBox && typeof window.VirtualBox === 'object') {
+                    results.isVM = true;
+                    results.indicators.push('VirtualBox object present');
+                }
+                
+                const vmProps = ['vboxrt', 'vboxdtcc'];
+                for (const prop of vmProps) {
+                    if (window[prop] !== undefined) {
+                        results.isVM = true;
+                        results.indicators.push(`${prop} property present`);
                     }
                 }
-            };
-            
-            // Execute all checks
-            const runAllChecks = () => {
-                // Clear the results container
-                document.getElementById('results').innerHTML = '';
                 
-                // Run all detection modules
-                webDriverChecks.run();
-                automationFrameworkChecks.run();
-                browserEnvironmentChecks.run();
-                featureAnomalyChecks.run();
-                domAnomalyChecks.run();
-                vmSandboxChecks.run();
-                
-                // If no detections, show all clear
-                setTimeout(() => {
-                    if (results.detections.length === 0) {
-                        document.getElementById('results').innerHTML = '<p class="no-detection">No automation detected.</p>';
-                        document.getElementById('status').textContent = 'Detection completed. No automation indicators found.';
-                    }
-                }, 1000);
-            };
-            
-            // Run checks when page is loaded
-            if (document.readyState === 'complete') {
-                runAllChecks();
-            } else {
-                window.addEventListener('load', runAllChecks);
+                detectionResults.hardware.vm = results;
+                return results;
             }
-        })();
+        };
+        
+        //===============================================================
+        // 7. Browser API Manipulation Detection
+        //===============================================================
+        
+        const apiManipulation = {
+            detectNavigatorManipulation: function() {
+                const results = {
+                    modified: false,
+                    modifiedProperties: []
+                };
+                
+                const propsToCheck = [
+                    'userAgent', 'platform', 'vendor', 'appVersion',
+                    'language', 'languages', 'plugins', 'mimeTypes'
+                ];
+                
+                for (const prop of propsToCheck) {
+                    try {
+                        const descriptor = Object.getOwnPropertyDescriptor(Navigator.prototype, prop);
+                        
+                        if (descriptor && descriptor.get && utils.isMethodNonNative(descriptor.get)) {
+                            results.modified = true;
+                            results.modifiedProperties.push({
+                                property: prop,
+                                details: utils.getNonNativeMethodString(descriptor.get, 100)
+                            });
+                        }
+                    } catch (e) {}
+                }
+                
+                detectionResults.apiManipulation.navigator = results;
+                return results;
+            },
+            
+            detectPermissionsAPIManipulation: function() {
+                const results = {
+                    modified: false
+                };
+                
+                try {
+                    if (navigator.permissions && navigator.permissions.query) {
+                        results.available = true;
+                        results.modified = utils.isMethodNonNative(navigator.permissions.query);
+                        
+                        if (results.modified) {
+                            results.methodBody = utils.getNonNativeMethodString(navigator.permissions.query, 100);
+                        }
+                    } else {
+                        results.available = false;
+                    }
+                } catch (e) {
+                    results.error = e.message;
+                }
+                
+                detectionResults.apiManipulation.permissions = results;
+                return results;
+            },
+            
+            detectContentWindowManipulation: function() {
+                const results = {
+                    modified: false
+                };
+                
+                try {
+                    const iframe = document.createElement('iframe');
+                    const iframeProto = Object.getPrototypeOf(iframe);
+                    
+                    const descriptor = Object.getOwnPropertyDescriptor(iframeProto, 'contentWindow');
+                    
+                    if (descriptor && descriptor.get) {
+                        results.modified = utils.isMethodNonNative(descriptor.get);
+                        
+                        if (results.modified) {
+                            results.methodBody = utils.getNonNativeMethodString(descriptor.get, 100);
+                        }
+                    }
+                } catch (e) {
+                    results.error = e.message;
+                }
+                
+                detectionResults.apiManipulation.contentWindow = results;
+                return results;
+            },
+            
+            detectTimezoneManipulation: function() {
+                const results = {
+                    modified: false
+                };
+                
+                try {
+                    const date = new Date();
+                    results.modified = utils.isMethodNonNative(date.getTimezoneOffset);
+                    
+                    if (results.modified) {
+                        results.methodBody = utils.getNonNativeMethodString(date.getTimezoneOffset, 100);
+                    }
+                    
+                    const timezoneOffset = date.getTimezoneOffset() / 60;
+                    
+                    let intl;
+                    try {
+                        intl = Intl.DateTimeFormat().resolvedOptions();
+                    } catch (e) {}
+                    
+                    results.timezoneOffset = timezoneOffset;
+                    
+                    if (intl) {
+                        results.intl = {
+                            timeZone: intl.timeZone,
+                            locale: intl.locale,
+                            calendar: intl.calendar
+                        };
+                    }
+                    
+                    if (intl && intl.timeZone) {
+                        const tzParts = intl.timeZone.split('/');
+                        const tzName = tzParts[tzParts.length - 1].toLowerCase();
+                        
+                        const westCoastNames = ['los_angeles', 'vancouver', 'tijuana', 'pacific'];
+                        const eastCoastNames = ['new_york', 'toronto', 'eastern'];
+                        const europeanNames = ['london', 'paris', 'berlin', 'rome', 'amsterdam'];
+                        const asianNames = ['tokyo', 'shanghai', 'hong_kong', 'singapore'];
+                        
+                        let expectedRanges = [];
+                        
+                        if (westCoastNames.some(name => tzName.includes(name.toLowerCase()))) {
+                            expectedRanges = [-8, -7]; // PST/PDT
+                        } else if (eastCoastNames.some(name => tzName.includes(name.toLowerCase()))) {
+                            expectedRanges = [-5, -4]; // EST/EDT
+                        } else if (europeanNames.some(name => tzName.includes(name.toLowerCase()))) {
+                            expectedRanges = [0, 1, 2]; // GMT/CET
+                        } else if (asianNames.some(name => tzName.includes(name.toLowerCase()))) {
+                            expectedRanges = [8, 9]; // CST/JST
+                        }
+                        
+                        if (expectedRanges.length > 0) {
+                            results.timezoneConsistent = expectedRanges.includes(Math.round(-timezoneOffset));
+                        }
+                    }
+                } catch (e) {
+                    results.error = e.message;
+                }
+                
+                detectionResults.apiManipulation.timezone = results;
+                return results;
+            }
+        };
+        
+        //===============================================================
+        // 8. Deception Detection
+        //===============================================================
+        
+        const deception = {
+            createHiddenBaitElements: function() {
+                const results = {
+                    created: false,
+                    interactions: []
+                };
+                
+                try {
+                    const hiddenDiv = document.createElement('div');
+                    hiddenDiv.style.cssText = 'opacity:0.01 !important; position:absolute !important; z-index:-990 !important; width:54px !important; height:22px !important;';
+                    
+                    const hiddenLink = document.createElement('a');
+                    hiddenLink.innerHTML = '___';
+                    hiddenLink.setAttribute('href', '#');
+                    hiddenLink.setAttribute('tabindex', '-1');
+                    hiddenLink.setAttribute('aria-hidden', 'true');
+                    hiddenLink.setAttribute('rel', 'nofollow');
+                    hiddenLink.style.cssText = 'opacity:0.01 !important; position:absolute !important; z-index:-991 !important; width:54px !important; height:22px !important;';
+                    
+                    const interactionHandler = function(event) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        
+                        results.interactions.push({
+                            type: event.type,
+                            timestamp: Date.now(),
+                            isTrusted: event.isTrusted !== false,
+                            targetId: event.target.id
+                        });
+                        
+                        detectionResults.deception.baitElements = results;
+                    };
+                    
+                    hiddenDiv.addEventListener('click', interactionHandler);
+                    hiddenDiv.addEventListener('mouseover', interactionHandler);
+                    hiddenLink.addEventListener('click', interactionHandler);
+                    hiddenLink.addEventListener('mouseover', interactionHandler);
+                    
+                    hiddenDiv.id = 'hb_' + Math.random().toString(36).substring(2, 8);
+                    hiddenLink.id = 'hl_' + Math.random().toString(36).substring(2, 8);
+                    
+                    if (document.body) {
+                        document.body.appendChild(hiddenDiv);
+                        document.body.appendChild(hiddenLink);
+                        results.created = true;
+                    } else {
+                        document.addEventListener('DOMContentLoaded', function() {
+                            document.body.appendChild(hiddenDiv);
+                            document.body.appendChild(hiddenLink);
+                            results.created = true;
+                        });
+                    }
+                    
+                    detectionResults.deception.baitElements = results;
+                } catch (e) {
+                    results.error = e.message;
+                    detectionResults.deception.baitElements = results;
+                }
+                
+                return results;
+            },
+            
+            analyzeEventTrust: function() {
+                const state = {
+                    events: [],
+                    untrustedDetected: false
+                };
+                
+                const recordEvent = function(event) {
+                    const eventData = {
+                        type: event.type,
+                        target: event.target.tagName,
+                        timestamp: Date.now(),
+                        isTrusted: event.isTrusted !== false
+                    };
+                    
+                    state.events.push(eventData);
+                    
+                    if (!eventData.isTrusted) {
+                        state.untrustedDetected = true;
+                    }
+                    
+                    if (state.events.length > 20) {
+                        state.events.shift();
+                    }
+                    
+                    detectionResults.deception.eventTrust = state;
+                };
+                
+                const eventsToMonitor = [
+                    'click', 'mousedown', 'mouseup', 'mousemove',
+                    'keydown', 'keyup', 'touchstart', 'touchend'
+                ];
+                
+                for (const eventType of eventsToMonitor) {
+                    document.addEventListener(eventType, recordEvent, true);
+                }
+                
+                detectionResults.deception.eventTrust = state;
+                return state;
+            }
+        };
+        
+        //===============================================================
+        // Public API
+        //===============================================================
+        
+        // Initialize behavioral monitoring
+        const mouseMonitor = browserBehavior.initMouseMonitoring();
+        const keyboardMonitor = browserBehavior.initKeyboardMonitoring();
+        const visibilityMonitor = browserBehavior.initVisibilityMonitoring();
+        
+        // Create bait elements
+        deception.createHiddenBaitElements();
+        
+        // Initialize event trust analysis
+        deception.analyzeEventTrust();
+        
+        return {
+            runDetection: function() {
+                // Browser Environment checks
+                browserEnvironment.detectWebGL();
+                browserEnvironment.getBrowserChrome();
+                browserEnvironment.detectScreenAnomalies();
+                
+                // JavaScript Environment checks
+                jsEnvironment.detectNativeFunctionTampering();
+                jsEnvironment.analyzeStackTrace();
+                jsEnvironment.getMathPrecisionTest();
+                
+                // Bot Framework checks
+                botFramework.detectAutomationGlobals();
+                botFramework.detectWebdriverProperties();
+                botFramework.detectAutomationExtensions();
+                
+                // Advanced fingerprinting
+                fingerprinting.getCanvasFingerprint();
+                fingerprinting.getAudioFingerprint();
+                fingerprinting.getFontDetection();
+                
+                // Hardware checks
+                hardware.getCPUAndMemoryInfo();
+                hardware.detectVMEnvironment();
+                hardware.getMediaDevices();
+                
+                // API Manipulation checks
+                apiManipulation.detectNavigatorManipulation();
+                apiManipulation.detectPermissionsAPIManipulation();
+                apiManipulation.detectContentWindowManipulation();
+                apiManipulation.detectTimezoneManipulation();
+                
+                return detectionResults;
+            },
+            
+            getResults: function() {
+                return detectionResults;
+            },
+            
+            isLikelyBot: function() {
+                this.runDetection();
+                
+                const botIndicators = [];
+                
+                // Check browser environment
+                if (detectionResults.browserEnvironment.screen && 
+                   (detectionResults.browserEnvironment.screen.zeroSize || 
+                    detectionResults.browserEnvironment.screen.zeroAvailableSize ||
+                    detectionResults.browserEnvironment.screen.smallColorDepth)) {
+                    botIndicators.push('Suspicious screen properties');
+                }
+                
+                // Check JS environment
+                if (detectionResults.jsEnvironment.nativeFunctionTampering) {
+                    const tamperedFunctions = Object.keys(detectionResults.jsEnvironment.nativeFunctionTampering)
+                        .filter(key => detectionResults.jsEnvironment.nativeFunctionTampering[key].isModified);
+                    
+                    if (tamperedFunctions.length > 0) {
+                        botIndicators.push('Modified native functions: ' + tamperedFunctions.join(', '));
+                    }
+                }
+                
+                // Check for bot frameworks
+                if (detectionResults.botFrameworks.globals && detectionResults.botFrameworks.globals.detected) {
+                    botIndicators.push('Automation globals detected: ' + 
+                        detectionResults.botFrameworks.globals.detectedGlobals.join(', '));
+                }
+                
+                if (detectionResults.botFrameworks.webdriver && 
+                   (detectionResults.botFrameworks.webdriver.navigatorHasWebdriver || 
+                    detectionResults.botFrameworks.webdriver.documentHasWebdriverAttributes)) {
+                    botIndicators.push('WebDriver detected');
+                }
+                
+                // Check for API manipulation
+                if (detectionResults.apiManipulation.navigator && 
+                    detectionResults.apiManipulation.navigator.modified) {
+                    botIndicators.push('Navigator properties modified');
+                }
+                
+                if (detectionResults.apiManipulation.permissions && 
+                    detectionResults.apiManipulation.permissions.modified) {
+                    botIndicators.push('Permissions API modified');
+                }
+                
+                if (detectionResults.apiManipulation.contentWindow && 
+                    detectionResults.apiManipulation.contentWindow.modified) {
+                    botIndicators.push('ContentWindow API modified');
+                }
+                
+                if (detectionResults.apiManipulation.timezone && 
+                    detectionResults.apiManipulation.timezone.modified) {
+                    botIndicators.push('Timezone API modified');
+                }
+                
+                // Check for suspicious hardware/VM
+                if (detectionResults.hardware.vm && detectionResults.hardware.vm.isVM) {
+                    botIndicators.push('VM environment detected');
+                }
+                
+                // Check for untrusted events
+                if (detectionResults.deception.eventTrust && 
+                    detectionResults.deception.eventTrust.untrustedDetected) {
+                    botIndicators.push('Untrusted events detected');
+                }
+                
+                // Check for bait element interaction
+                if (detectionResults.deception.baitElements && 
+                    detectionResults.deception.baitElements.interactions.length > 0) {
+                    botIndicators.push('Interaction with hidden bait elements');
+                }
+                
+                return {
+                    isBot: botIndicators.length > 0,
+                    botScore: botIndicators.length,
+                    indicators: botIndicators
+                };
+            }
+        };
+    })();
+
+    // UI Helper Functions
+    function updateProgressBar(percent) {
+        const progressBar = document.getElementById('progress');
+        progressBar.style.width = percent + '%';
+    }
+
+    function updateStatus(message) {
+        const statusElement = document.getElementById('status');
+        statusElement.textContent = message;
+    }
+
+    function addDetection(message, details) {
+        const resultsElement = document.getElementById('results');
+        
+        if (resultsElement.querySelector('p')) {
+            resultsElement.innerHTML = '';
+        }
+        
+        const detectionElement = document.createElement('div');
+        detectionElement.className = 'detection';
+        
+        const messageElement = document.createElement('div');
+        messageElement.textContent = message;
+        detectionElement.appendChild(messageElement);
+        
+        if (details) {
+            const detailsElement = document.createElement('div');
+            detailsElement.style.fontSize = '0.9em';
+            detailsElement.style.marginTop = '5px';
+            detailsElement.style.color = '#555';
+            detailsElement.textContent = details;
+            detectionElement.appendChild(detailsElement);
+        }
+        
+        const timestampElement = document.createElement('div');
+        timestampElement.className = 'timestamp';
+        
+        const now = new Date();
+        const timeString = now.toLocaleTimeString();
+        timestampElement.textContent = timeString;
+        
+        detectionElement.appendChild(timestampElement);
+        resultsElement.appendChild(detectionElement);
+    }
+
+    function addCategory(name) {
+        const resultsElement = document.getElementById('results');
+        
+        const categoryElement = document.createElement('div');
+        categoryElement.className = 'category';
+        categoryElement.textContent = name;
+        
+        resultsElement.appendChild(categoryElement);
+    }
+
+    function displayNoBotMessage() {
+        const resultsElement = document.getElementById('results');
+        
+        const noBotElement = document.createElement('div');
+        noBotElement.className = 'no-detection';
+        noBotElement.textContent = 'No automation tools detected. Your browser appears to be normal.';
+        
+        resultsElement.appendChild(noBotElement);
+    }
+
+    // Run detection in stages to show progressive results
+    document.addEventListener('DOMContentLoaded', function() {
+        let detectionComplete = false;
+        
+        // Stage 1: Initial checks
+        setTimeout(function() {
+            updateStatus('Checking browser environment...');
+            updateProgressBar(20);
+            
+            // Detect screen anomalies
+            const screenResults = BotDetector.isLikelyBot();
+            if (screenResults.isBot) {
+                addCategory('Automation Detection');
+                
+                screenResults.indicators.forEach(function(indicator) {
+                    addDetection(indicator);
+                });
+            }
+        }, 500);
+        
+        // Stage 2: Framework detection
+        setTimeout(function() {
+            updateStatus('Checking for automation frameworks...');
+            updateProgressBar(40);
+            
+            const botResults = BotDetector.getResults();
+            
+            // Check webdriver
+            if (botResults.botFrameworks && botResults.botFrameworks.webdriver && 
+                (botResults.botFrameworks.webdriver.navigatorHasWebdriver || 
+                botResults.botFrameworks.webdriver.documentHasWebdriverAttributes)) {
+                
+                addCategory('WebDriver Detection');
+                
+                if (botResults.botFrameworks.webdriver.navigatorHasWebdriver) {
+                    addDetection('WebDriver property detected in navigator', 
+                        'The navigator.webdriver property is ' + botResults.botFrameworks.webdriver.webdriverValue);
+                }
+                
+                if (botResults.botFrameworks.webdriver.documentHasWebdriverAttributes) {
+                    let attrs = [];
+                    for (let attr in botResults.botFrameworks.webdriver.attributes) {
+                        if (botResults.botFrameworks.webdriver.attributes[attr]) {
+                            attrs.push(attr);
+                        }
+                    }
+                    addDetection('WebDriver attributes found in document', 
+                        'Attributes: ' + attrs.join(', '));
+                }
+            }
+            
+            // Check for automation globals
+            if (botResults.botFrameworks && botResults.botFrameworks.globals && 
+                botResults.botFrameworks.globals.detected) {
+                
+                addCategory('Automation Globals');
+                
+                addDetection('Automation global variables detected', 
+                    'Detected: ' + botResults.botFrameworks.globals.detectedGlobals.join(', '));
+            }
+        }, 1000);
+        
+        // Stage 3: JavaScript environment
+        setTimeout(function() {
+            updateStatus('Analyzing JavaScript environment...');
+            updateProgressBar(60);
+            
+            const botResults = BotDetector.getResults();
+            
+            // Check for tampered functions
+            if (botResults.jsEnvironment && botResults.jsEnvironment.nativeFunctionTampering) {
+                const tamperedFunctions = Object.keys(botResults.jsEnvironment.nativeFunctionTampering)
+                    .filter(key => botResults.jsEnvironment.nativeFunctionTampering[key].isModified);
+                
+                if (tamperedFunctions.length > 0) {
+                    addCategory('Native Function Tampering');
+                    
+                    tamperedFunctions.forEach(function(funcName) {
+                        addDetection('Modified native function: ' + funcName);
+                    });
+                }
+            }
+            
+            // Check stack trace
+            if (botResults.jsEnvironment && botResults.jsEnvironment.stackTrace && 
+                botResults.jsEnvironment.stackTrace.suspicious) {
+                
+                addCategory('Suspicious Stack Trace');
+                
+                addDetection('Suspicious patterns in stack trace', 
+                    'Patterns: ' + botResults.jsEnvironment.stackTrace.detectedPatterns.join(', '));
+            }
+        }, 1500);
+        
+        // Stage 4: API manipulation
+        setTimeout(function() {
+            updateStatus('Checking for API manipulations...');
+            updateProgressBar(80);
+            
+            const botResults = BotDetector.getResults();
+            
+            // Check for navigator manipulation
+            if (botResults.apiManipulation && botResults.apiManipulation.navigator && 
+                botResults.apiManipulation.navigator.modified) {
+                
+                addCategory('API Manipulation');
+                
+                const modifiedProps = botResults.apiManipulation.navigator.modifiedProperties
+                    .map(item => item.property);
+                
+                addDetection('Navigator properties have been modified', 
+                    'Modified: ' + modifiedProps.join(', '));
+            }
+            
+            // Check for permissions API manipulation
+            if (botResults.apiManipulation && botResults.apiManipulation.permissions && 
+                botResults.apiManipulation.permissions.modified) {
+                
+                if (!document.querySelector('.category:last-child').textContent.includes('API Manipulation')) {
+                    addCategory('API Manipulation');
+                }
+                
+                addDetection('Permissions API has been modified');
+            }
+            
+            // Check for timezone manipulation
+            if (botResults.apiManipulation && botResults.apiManipulation.timezone && 
+                botResults.apiManipulation.timezone.modified) {
+                
+                if (!document.querySelector('.category:last-child').textContent.includes('API Manipulation')) {
+                    addCategory('API Manipulation');
+                }
+                
+                addDetection('Timezone API has been modified');
+            }
+        }, 2000);
+        
+        // Final stage: Complete detection
+        setTimeout(function() {
+            updateStatus('Detection complete!');
+            updateProgressBar(100);
+            
+            // Get final results
+            const finalResults = BotDetector.isLikelyBot();
+            
+            if (!finalResults.isBot && !detectionComplete) {
+                // No detections
+                displayNoBotMessage();
+            } else if (finalResults.isBot) {
+                // Show bot score
+                const resultsElement = document.getElementById('results');
+                
+                const scoreElement = document.createElement('div');
+                scoreElement.style.marginTop = '20px';
+                scoreElement.style.fontWeight = 'bold';
+                scoreElement.textContent = 'Bot Score: ' + finalResults.botScore + ' / 10';
+                
+                resultsElement.appendChild(scoreElement);
+            }
+            
+            detectionComplete = true;
+        }, 2500);
+    });
     </script>
 </body>
 </html>
